@@ -26,6 +26,7 @@ type LiveRoom = {
 };
 
 const PROFILE_IMAGE = 'https://raw.githubusercontent.com/neerajkapil33/AI-Hologram/main/assets_private/neeraj.jpg';
+const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
 
 function App() {
   const root = useRoot();
@@ -99,11 +100,12 @@ function App() {
     setStartingCall(true);
     setStatus('CONNECTING • HIGH-FIDELITY NEERAJ AI REPLICA');
     try {
-      const response = await fetch('/api/tavus/conversation', {
+      const response = await fetch(`${API_BASE_URL}/api/tavus/conversation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language }),
       });
+      if (!response.ok) throw new Error(`LIVE API ${response.status}`);
       const room = await response.json() as LiveRoom;
       setLiveRoom(room);
       if (room.conversation_url) setStatus('LIVE VIDEO CALL • NEERAJ AI IS HERE');
