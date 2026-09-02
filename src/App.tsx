@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { common, d } from 'typegpu';
 import { useConfigureContext, useFrame, useRoot } from '@typegpu/react';
 import { AvatarEngine, type AvatarCommand } from './AvatarEngine';
+import { useHologramBrain } from './useHologramBrain';
 
 type Recognition = {
   start: () => void;
@@ -17,15 +18,6 @@ type Recognition = {
 type SpeechWindow = Window & {
   SpeechRecognition?: new () => Recognition;
   webkitSpeechRecognition?: new () => Recognition;
-};
-
-const brainReply = (question: string) => {
-  const q = question.toLowerCase();
-  if (q.includes('who are you') || q.includes('introduce')) return "I’m Neeraj Kapil’s AI digital representative. I can help with talent acquisition, career strategy, HR transformation and technology.";
-  if (q.includes('career') || q.includes('job')) return "Let’s approach your career as a system: clarify your target role, sharpen your positioning, quantify your impact, and run a focused search with measurable weekly outcomes.";
-  if (q.includes('ai')) return "AI is most valuable when it becomes part of the operating system, not just another tool. I would start with the workflow, data, governance and measurable business outcome.";
-  if (q.includes('hello') || q.includes('hi')) return 'Hello. I’m ready. Tell me what you want to solve.';
-  return `I heard you say: ${question}. I’m processing that now. For the full connected brain, the app can route this conversation to the backend AI service.`;
 };
 
 function App() {
@@ -59,39 +51,37 @@ function App() {
 
   const command = (c: AvatarCommand) => apiRef.current?.command(c);
 
-  const speak = (text: string) => {
-    if (!('speechSynthesis' in window)) {
-      setStatus('BRAIN READY • BROWSER VOICE UNAVAILABLE');
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.96;
-    utterance.pitch = 0.92;
-    utterance.onstart = () => {
+  // Real backend connection: sends your question to backend/main.py, which
+  // routes it through Claude (brain.py) and your cloned voice (tts.py), and
+  // streams the reply text + synthesized audio back over the WebSocket.
+  const { status: brainStatus, sendText, stopSpeaking } = useHologramBrain({
+    onAssistantText: (text) => setResponse(text),
+    onSpeechStart: () => {
       setSpeaking(true);
       setStatus('NEERAJ SPEAKING • EXPRESSION + LIP MOTION ACTIVE');
       command({ type: 'expression', value: 'speaking' });
-    };
-    utterance.onend = () => {
+    },
+    onSpeechEnd: () => {
       setSpeaking(false);
       command({ type: 'expression', value: 'neutral' });
       command({ type: 'gesture', value: 'idle' });
       setStatus('BRAIN READY • LISTENING FOR NEXT QUESTION');
-    };
-    window.speechSynthesis.speak(utterance);
-  };
+    },
+    onAmplitude: (level) => command({ type: 'viseme', value: 'mouthOpen', amount: level }),
+  });
 
   const processQuestion = (text: string) => {
     const clean = text.trim();
     if (!clean) return;
+    if (brainStatus !== 'ready') {
+      setStatus('BACKEND OFFLINE • RUN start_windows.ps1 (or backend/main.py) FIRST');
+      return;
+    }
     setTranscript(clean);
     setStatus('NEERAJ THINKING • BRAIN RESPONSE IN PROGRESS');
     command({ type: 'expression', value: 'thinking' });
     command({ type: 'gesture', value: 'nod' });
-    const answer = brainReply(clean);
-    setResponse(answer);
-    window.setTimeout(() => speak(answer), 250);
+    sendText(clean);
   };
 
   const startListening = () => {
@@ -137,7 +127,10 @@ function App() {
       <div className="hud">
         <header className="top-bar">
           <div className="brand"><span className="status-dot" /> NEERAJ AI</div>
-          <div className="system-status">WEBGPU <span>●</span>&nbsp;&nbsp; AVATAR <span>●</span>&nbsp;&nbsp; BRAIN <span>●</span></div>
+          <div className="system-status">
+            WEBGPU <span>●</span>&nbsp;&nbsp; AVATAR <span>●</span>&nbsp;&nbsp;
+            BRAIN <span className={brainStatus === 'ready' ? 'status-ok' : 'status-bad'}>●</span>
+          </div>
         </header>
 
         <section className="center-content">
@@ -159,8 +152,8 @@ function App() {
             <button className="mini-button" onClick={() => command({ type: 'expression', value: 'happy' })}>SMILE</button>
             <button className="mini-button" onClick={() => command({ type: 'expression', value: 'thinking' })}>THINK</button>
             <button className="mini-button" onClick={() => command({ type: 'gesture', value: 'wave' })}>WAVE</button>
-            <button className="mini-button" onClick={() => { setResponse('Voice and body test is running.'); speak('Voice, body movement, expression and eye blink test is running.'); }}>VOICE TEST</button>
-            {speaking && <button className="mini-button" onClick={() => { window.speechSynthesis.cancel(); setSpeaking(false); command({ type: 'expression', value: 'neutral' }); }}>STOP VOICE</button>}
+            <button className="mini-button" onClick={() => processQuestion('Run a quick voice, body movement, expression and eye blink test.')}>VOICE TEST</button>
+            {speaking && <button className="mini-button" onClick={stopSpeaking}>STOP VOICE</button>}
           </div>
         </section>
 

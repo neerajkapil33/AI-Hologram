@@ -3,10 +3,11 @@
   "status": "awaiting_real_human_glb",
   "required_file": "public/avatar/avatar.glb",
   "identity_references": [
-    "neeraj.jpg",
-    "neeraj-reference.mp4",
-    "neeraj-voice-reference.wav"
+    "assets_private/neeraj.jpg",
+    "assets_private/neeraj-reference.mp4",
+    "assets_private/neeraj-voice-reference.wav"
   ],
+  "identity_references_note": "Local-only, gitignored — not committed to the repo.",
   "requirements": {
     "full_body": true,
     "human_face": true,

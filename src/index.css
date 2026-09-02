@@ -16,6 +16,8 @@ button { font: inherit; }
 .brand { display:flex; align-items:center; gap:10px; font-weight:700; color:#d9fbff; }
 .status-dot { width:7px; height:7px; border-radius:50%; background:#4ffaff; box-shadow:0 0 14px #4ffaff; }
 .system-status span { color:#4ffaff; text-shadow:0 0 10px #4ffaff; }
+.system-status .status-ok { color:#4ffaff; text-shadow:0 0 10px #4ffaff; }
+.system-status .status-bad { color:#ff5c5c; text-shadow:0 0 10px #ff5c5c; }
 .center-content { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:0; }
 .avatar-frame { position:relative; width:min(430px,70vw); height:min(430px,60vh); display:grid; place-items:center; }
 .avatar-engine-wrap { position:absolute; inset:0; z-index:2; }
