@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Change if your backend runs somewhere other than localhost:8000
-// (see backend/main.py / start_windows.ps1).
-const BACKEND_WS_URL = 'ws://127.0.0.1:8000/ws';
+const BACKEND_WS_URL = import.meta.env.VITE_BACKEND_WS_URL ?? 'ws://127.0.0.1:8000/ws';
 
 type ServerMessage =
   | { type: 'transcription'; text: string }
@@ -13,19 +11,14 @@ type ServerMessage =
 
 export type BrainStatus = 'connecting' | 'ready' | 'offline';
 
-/**
- * Owns the WebSocket to backend/main.py and decodes the audio replies it
- * sends back into an AudioBufferSourceNode, exposing a live 0..1 amplitude
- * value each frame so the caller can drive viseme/mouth-open commands on
- * the Three.js avatar in sync with the actual cloned voice.
- */
 export function useHologramBrain(opts: {
   onAssistantText: (text: string) => void;
   onSpeechStart: () => void;
   onSpeechEnd: () => void;
   onAmplitude: (level: number) => void;
+  onAvatarVideo?: (src: string | null) => void;
 }) {
-  const { onAssistantText, onSpeechStart, onSpeechEnd, onAmplitude } = opts;
+  const { onAssistantText, onSpeechStart, onSpeechEnd, onAmplitude, onAvatarVideo } = opts;
   const socketRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -34,24 +27,25 @@ export function useHologramBrain(opts: {
   useEffect(() => {
     const socket = new WebSocket(BACKEND_WS_URL);
     socketRef.current = socket;
-
     socket.onopen = () => setStatus('ready');
     socket.onclose = () => setStatus('offline');
     socket.onerror = () => setStatus('offline');
 
     socket.onmessage = async (event) => {
       const data: ServerMessage = JSON.parse(event.data);
-      if (data.type === 'message') {
-        onAssistantText(data.content);
-      } else if (data.type === 'audio') {
-        await playBase64Audio(data.audio);
+      if (data.type === 'message') onAssistantText(data.content);
+      else if (data.type === 'audio') await playBase64Audio(data.audio);
+      else if (data.type === 'avatar_video') {
+        const bytes = Uint8Array.from(atob(data.video), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: data.mime || 'video/mp4' }));
+        onAvatarVideo?.(url);
       }
-      // 'transcription' (server-side STT) and 'avatar_video' (MuseTalk) are
-      // available from the backend but not consumed here yet — the current
-      // Three.js avatar is driven by amplitude, not a generated video frame.
     };
 
-    return () => socket.close();
+    return () => {
+      socket.close();
+      if (currentSourceRef.current) currentSourceRef.current.stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -65,7 +59,6 @@ export function useHologramBrain(opts: {
     await ctx.resume();
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
-
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     currentSourceRef.current = source;
@@ -74,7 +67,6 @@ export function useHologramBrain(opts: {
     const freqData = new Uint8Array(analyser.frequencyBinCount);
     source.connect(analyser);
     analyser.connect(ctx.destination);
-
     onSpeechStart();
     source.start();
 
@@ -87,27 +79,19 @@ export function useHologramBrain(opts: {
     };
     tick();
 
-    await new Promise<void>((resolve) => {
-      source.onended = () => resolve();
-    });
+    await new Promise<void>((resolve) => { source.onended = () => resolve(); });
     currentSourceRef.current = null;
     cancelAnimationFrame(raf);
     onAmplitude(0);
     onSpeechEnd();
   };
 
-  const sendText = useCallback((text: string) => {
+  const sendText = useCallback((text: string, language = 'en') => {
     const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'text', text }));
-    }
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'text', text, language }));
   }, []);
 
-  const stopSpeaking = useCallback(() => {
-    // .onended fires on manual stop() too, so this naturally triggers
-    // onAmplitude(0) + onSpeechEnd() via the same path as a normal finish.
-    currentSourceRef.current?.stop();
-  }, []);
+  const stopSpeaking = useCallback(() => currentSourceRef.current?.stop(), []);
 
   return { status, sendText, stopSpeaking };
 }
