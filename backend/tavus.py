@@ -4,13 +4,13 @@ import urllib.error
 import urllib.request
 
 
-LANGUAGE_NAMES = {
-    "en-IN": "english",
-    "hi-IN": "hindi",
-    "ta-IN": "tamil",
-    "te-IN": "telugu",
-    "bn-IN": "bengali",
-    "mr-IN": "marathi",
+LANGUAGE_CODES = {
+    "en-IN": "en",
+    "hi-IN": "hi",
+    "ta-IN": "ta",
+    "te-IN": "te",
+    "bn-IN": "bn",
+    "mr-IN": "mr",
 }
 
 
@@ -20,37 +20,38 @@ class Tavus:
     def __init__(self):
         self.base_url = os.getenv("TAVUS_BASE_URL", "https://tavusapi.com").rstrip("/")
         self.api_key = os.getenv("TAVUS_API_KEY", "").strip()
-        self.replica_id = os.getenv("TAVUS_REPLICA_ID", "").strip()
-        self.persona_id = os.getenv("TAVUS_PERSONA_ID", "").strip()
+        # Current Tavus API uses face_id + pal_id. Keep the older env names as
+        # fallbacks so an existing local configuration can be migrated safely.
+        self.face_id = os.getenv("TAVUS_FACE_ID", os.getenv("TAVUS_REPLICA_ID", "")).strip()
+        self.pal_id = os.getenv("TAVUS_PAL_ID", os.getenv("TAVUS_PERSONA_ID", "")).strip()
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key and self.replica_id and self.persona_id)
+        return bool(self.api_key and self.face_id and self.pal_id)
 
     def create_conversation(self, language: str = "en-IN") -> dict:
         if not self.configured:
             return {
                 "configured": False,
-                "message": "Tavus is not configured. Add TAVUS_API_KEY, TAVUS_REPLICA_ID and TAVUS_PERSONA_ID to .env.",
+                "message": "Tavus is not configured. Add TAVUS_API_KEY, TAVUS_FACE_ID and TAVUS_PAL_ID to the backend environment.",
             }
 
-        language_name = LANGUAGE_NAMES.get(language, "multilingual")
+        language_code = LANGUAGE_CODES.get(language, "en")
         context = os.getenv(
             "TAVUS_CONVERSATIONAL_CONTEXT",
-            "You are Neeraj AI, an AI representation of Neeraj Kapil. Be warm, confident, empathetic, strategic and practical. Default to English, but naturally switch to the user's selected language when possible. Focus on career strategy, leadership, talent acquisition, interviews, resumes, LinkedIn, job search, skills and global career opportunities. Never claim to be the physical Neeraj or invent private biography. Listen before advising, and be concise enough for spoken conversation.",
+            "You are Neeraj AI, an AI representation of Neeraj Kapil. Be warm, confident, empathetic, strategic and practical. Default to English, but naturally switch to the user's selected language. Focus on career strategy, leadership, talent acquisition, interviews, resumes, LinkedIn, job search, skills and global career opportunities. Listen before advising. Be concise and natural for spoken conversation. Never claim to be the physical Neeraj or invent private biography.",
         )
-        context = f"{context}\nCurrent preferred user language: {language_name}."
         payload = {
-            "replica_id": self.replica_id,
-            "persona_id": self.persona_id,
+            "face_id": self.face_id,
+            "pal_id": self.pal_id,
             "conversation_name": "Neeraj AI Career Companion",
-            "conversational_context": context,
+            "conversational_context": f"{context}\nOpen this conversation in {language_code}.",
             "custom_greeting": os.getenv(
                 "TAVUS_CUSTOM_GREETING",
                 "Hi, I’m Neeraj AI. What would you like to work on today?",
             ),
             "max_participants": 2,
-            "properties": {"language": language_name},
+            "properties": {"languages": [language_code]},
         }
         request = urllib.request.Request(
             f"{self.base_url}/v2/conversations",
