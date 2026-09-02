@@ -8,11 +8,15 @@ TypeGPU/WebGPU + React + Three.js foundation for a high-fidelity Neeraj Kapil AI
 A polished professional identity screen using the approved Neeraj reference image and the supplied blue/neon visual direction.
 
 ### AI Career Companion / Video Call
-A live interactive digital human. The pipeline is designed as:
+The production path is now wired for a real-time high-fidelity digital-human call using Tavus CVI. Tavus combines a lifelike Replica, a behavior Persona, and a real-time WebRTC conversation. The UI opens the returned conversation inside the Neeraj hologram stage.
+
+The local pipeline remains available as a development fallback:
 
 `voice/text -> STT -> Neeraj persona -> LLM -> cloned/synthesized Neeraj voice -> lip/face animation -> avatar/video presentation`
 
-The UI switches into the live companion when the user chooses **AI Career Companion** or **VIDEO CALL**.
+The production call path is:
+
+`user microphone -> Tavus CVI -> Neeraj AI Persona -> TTS -> Phoenix Replica -> WebRTC video call`
 
 ## Reference-asset policy
 
@@ -27,14 +31,19 @@ The approved voice reference is `assets_private/neeraj-voice-reference.wav`. The
 - Morph-target / viseme hook
 - Blinking, expressions and gesture command interface
 - Profile vs live AI Career Companion UI
-- Video-call presentation surface for generated avatar video
+- Embedded real-time Tavus video-call surface
+- Server-side Tavus conversation creation; API key never reaches the browser
 - WebSocket brain pipeline
 - Anthropic/Ollama persona layer
-- Selected-language propagation from UI -> LLM -> TTS
+- Selected-language propagation from UI -> LLM -> TTS and live-call context
 - OpenAI-compatible TTS adapter for the approved voice reference
 - MuseTalk adapter that prepares generated lip-synced output from the approved reference video
 - Responsive neon-blue career-coach screen based on the supplied visual direction
 - Explicit AI-representation disclosure
+
+## High-fidelity replica
+
+The production integration is designed around a personal Replica trained from Neeraj's authorized real footage. Tavus documents a short personal-replica training path and real-time CVI with natural facial movement, turn-taking and multilingual support. See `docs/TAVUS_SETUP.md` for the exact setup checklist and consent/training requirements.
 
 ## Persona
 
@@ -44,15 +53,16 @@ The system can infer conversational cues, but it does not claim to read a user's
 
 ## Remaining production requirements
 
-1. Generate/rig the final high-fidelity Neeraj full-body GLB from the approved references, including face, hands, shoes, clothing and watch.
-2. Configure the approved voice-cloning/TTS runtime and voice reference.
-3. Install and prepare MuseTalk 1.5 on a GPU host for generated lip-synced video mode.
-4. Connect production STT and streaming audio/video transport.
-5. Add consent-based inspect/delete controls before enabling persistent conversation memory.
-6. Add the final avatar animation library for natural gaze, posture, gestures, dance/spin and other explicitly requested entertainment actions.
+1. Create the authorized personal Neeraj Replica in Tavus using suitable real training footage and the required consent statement.
+2. Create the Neeraj AI Persona and attach the career-coaching instructions/knowledge.
+3. Put `TAVUS_API_KEY`, `TAVUS_REPLICA_ID` and `TAVUS_PERSONA_ID` in the server `.env`.
+4. Configure the approved voice-cloning/TTS runtime for the local fallback path.
+5. Install and prepare MuseTalk 1.5 on a GPU host if generated lip-synced turn videos are required.
+6. Add consent-based inspect/delete controls before enabling persistent conversation memory.
+7. Add the final avatar animation library for natural gaze, posture, gestures, dance/spin and other explicitly requested entertainment actions.
 
 ## Important identity note
 
-The goal is high-fidelity likeness and behavior, but software should not claim a mathematically exact copy of a real person. The product is an AI representation of Neeraj Kapil and should be presented as such.
+The goal is **high-fidelity likeness**, not a misleading claim of a mathematically exact copy. The product is an AI representation of Neeraj Kapil and should be presented as such. The user has explicitly authorized use of the supplied identity/voice references for this project.
 
 The repository is the source-of-truth destination for continued development.
