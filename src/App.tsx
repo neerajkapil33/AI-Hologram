@@ -17,7 +17,13 @@ type Recognition = {
 type SpeechWindow = Window & { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
 type Mode = 'profile' | 'companion';
 
-type LiveRoom = { conversation_url?: string; conversation_id?: string; error?: string; configured?: boolean };
+type LiveRoom = {
+  conversation_url?: string;
+  conversation_id?: string;
+  error?: string;
+  message?: string;
+  configured?: boolean;
+};
 
 const PROFILE_IMAGE = 'https://raw.githubusercontent.com/neerajkapil33/AI-Hologram/main/assets_private/neeraj.jpg';
 
