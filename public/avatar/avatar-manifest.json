@@ -1,22 +1,36 @@
 {
-  "avatar": "Neeraj Kapil",
-  "status": "awaiting_real_human_glb",
-  "required_file": "public/avatar/avatar.glb",
+  "avatar": "Neeraj Kapil AI Digital Human",
+  "status": "generation_pipeline_configured",
+  "profile_mode": {
+    "purpose": "professional career coach identity",
+    "visual_reference": "approved Neeraj career-coach reference image"
+  },
+  "live_mode": {
+    "purpose": "AI Career Companion / Video Call",
+    "reference_video_policy": "source material only; never replay the raw reference video as an answer",
+    "preferred_pipeline": "generated avatar performance + cloned voice + lip sync"
+  },
   "identity_references": [
     "assets_private/neeraj.jpg",
     "assets_private/neeraj-reference.mp4",
     "assets_private/neeraj-voice-reference.wav"
   ],
-  "identity_references_note": "Local-only, gitignored — not committed to the repo.",
   "requirements": {
     "full_body": true,
     "human_face": true,
     "human_hands": true,
+    "feet_and_shoes": true,
+    "luxury_watch_detail": true,
     "skeleton_rig": true,
     "facial_morphs": true,
     "eye_blink": true,
     "lip_sync": true,
     "expressions": true,
-    "body_gestures": true
-  }
+    "body_gestures": true,
+    "multilingual": true,
+    "video_call_mode": true,
+    "consent_based_memory": true
+  },
+  "expression_states": ["neutral", "happy", "thinking", "empathetic", "concerned", "excited", "speaking", "listening", "celebrating"],
+  "gesture_states": ["idle", "nod", "wave", "open-hand", "explain", "listen", "celebrate", "dance", "spin"]
 }
