@@ -15,8 +15,9 @@ type Recognition = {
   onend: (() => void) | null;
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
-
 type Mode = 'profile' | 'companion';
+
+type LiveRoom = { conversation_url?: string; conversation_id?: string; error?: string; configured?: boolean };
 
 const PROFILE_IMAGE = 'https://raw.githubusercontent.com/neerajkapil33/AI-Hologram/main/assets_private/neeraj.jpg';
 
@@ -32,6 +33,8 @@ function App() {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [avatarVideo, setAvatarVideo] = useState<string | null>(null);
+  const [liveRoom, setLiveRoom] = useState<LiveRoom | null>(null);
+  const [startingCall, setStartingCall] = useState(false);
 
   const renderPipeline = useMemo(() => root.createRenderPipeline({
     vertex: common.fullScreenTriangle,
@@ -85,6 +88,27 @@ function App() {
     startListening();
   };
 
+  const startVideoCall = async () => {
+    setMode('companion');
+    setStartingCall(true);
+    setStatus('CONNECTING • HIGH-FIDELITY NEERAJ AI REPLICA');
+    try {
+      const response = await fetch('/api/tavus/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language }),
+      });
+      const room = await response.json() as LiveRoom;
+      setLiveRoom(room);
+      if (room.conversation_url) setStatus('LIVE VIDEO CALL • NEERAJ AI IS HERE');
+      else setStatus(room.error ?? room.message ?? 'LIVE CALL IS NOT CONFIGURED YET');
+    } catch (error) {
+      setStatus(`VIDEO CALL ERROR • ${error instanceof Error ? error.message : 'TRY AGAIN'}`);
+    } finally {
+      setStartingCall(false);
+    }
+  };
+
   return (
     <main className="neeraj-screen">
       <canvas ref={ref} className="hologram-canvas" />
@@ -101,8 +125,17 @@ function App() {
         </aside>
 
         <section className="avatar-stage">
-          <div className="stage-label"><span>●</span> {mode === 'profile' ? 'CAREER COACH PROFILE' : 'LIVE AI CAREER COMPANION'}</div>
-          {mode === 'profile' ? (
+          <div className="stage-label"><span>●</span> {mode === 'profile' ? 'CAREER COACH PROFILE' : liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE AI CAREER COMPANION'}</div>
+          {liveRoom?.conversation_url ? (
+            <div className="live-call-stage">
+              <iframe
+                title="Neeraj AI live video career companion"
+                src={liveRoom.conversation_url}
+                allow="camera; microphone; autoplay; fullscreen; display-capture"
+              />
+              <div className="call-badge">● LIVE • AI REPRESENTATION</div>
+            </div>
+          ) : mode === 'profile' ? (
             <div className="profile-avatar"><img src={PROFILE_IMAGE} alt="Neeraj Kapil professional AI coach reference" /><div className="profile-glow" /></div>
           ) : (
             <div className="live-avatar">
@@ -111,9 +144,9 @@ function App() {
             </div>
           )}
           <div className="avatar-name">NEERAJ</div>
-          <div className="avatar-sub">AI CAREER INTELLIGENCE • DIGITAL HUMAN</div>
+          <div className="avatar-sub">HIGH-FIDELITY AI REPLICA • CAREER INTELLIGENCE</div>
           <div className="stage-message">{status}</div>
-          {mode === 'companion' && <div className="conversation"><div className="response">{response}</div>{transcript && <div className="transcript">YOU: {transcript}</div>}</div>}
+          {mode === 'companion' && !liveRoom?.conversation_url && <div className="conversation"><div className="response">{response}</div>{transcript && <div className="transcript">YOU: {transcript}</div>}</div>}
         </section>
 
         <aside className="right-rail">
@@ -124,14 +157,15 @@ function App() {
       </section>
 
       <section className="control-deck">
-        <div className="mode-switch"><button className={mode==='profile'?'active':''} onClick={() => setMode('profile')}>PROFILE</button><button className={mode==='companion'?'active':''} onClick={() => setMode('companion')}>AI CAREER COMPANION</button></div>
+        <div className="mode-switch"><button className={mode==='profile'?'active':''} onClick={() => { setMode('profile'); setLiveRoom(null); }}>PROFILE</button><button className={mode==='companion'?'active':''} onClick={() => setMode('companion')}>AI CAREER COMPANION</button></div>
         <div className="chat-input"><span>◌</span><input placeholder="Type to Chat with Neeraj" onKeyDown={(e) => { if (e.key==='Enter') processQuestion(e.currentTarget.value); }} /><button onClick={toggleVoice}>{listening ? 'STOP' : '🎙'}</button></div>
         <select aria-label="Conversation language" value={language} onChange={(e) => setLanguage(e.target.value)}><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option><option value="bn-IN">বাংলা</option><option value="mr-IN">मराठी</option></select>
-        <button className="call-button" onClick={() => { setMode('companion'); setStatus('VIDEO CALL READY • NEERAJ IS HERE'); }}>VIDEO CALL</button>
+        <button className="call-button" disabled={startingCall} onClick={startVideoCall}>{startingCall ? 'CONNECTING…' : 'VIDEO CALL'}</button>
+        {liveRoom?.conversation_url && <button className="stop-button" onClick={() => { setLiveRoom(null); setStatus('VIDEO CALL ENDED • NEERAJ AI READY'); }}>END CALL</button>}
         {speaking && <button className="stop-button" onClick={stopSpeaking}>STOP VOICE</button>}
       </section>
 
-      <footer className="neeraj-footer"><span>AI CAREER INTELLIGENCE</span><span>VOICE • FACE • EXPRESSION • BODY • BRAIN • MULTILINGUAL</span><span>HOLOGRAM SYSTEM v3.0</span></footer>
+      <footer className="neeraj-footer"><span>AI CAREER INTELLIGENCE</span><span>VOICE • FACE • EXPRESSION • BODY • BRAIN • MULTILINGUAL</span><span>HOLOGRAM SYSTEM v3.1</span></footer>
       <div className="ai-disclosure">AI representation of Neeraj Kapil • generated responses are not statements made by the physical Neeraj.</div>
     </main>
   );
