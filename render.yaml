@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: neeraj-ai-live
+    runtime: docker
+    dockerfilePath: ./Dockerfile.live
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: TAVUS_API_KEY
+        sync: false
+      - key: TAVUS_FACE_ID
+        sync: false
+      - key: TAVUS_PAL_ID
+        sync: false
+      - key: TAVUS_CUSTOM_GREETING
+        value: "Hi, I’m Neeraj AI. What would you like to work on today?"
