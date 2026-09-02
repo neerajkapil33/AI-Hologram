@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Change if your backend runs somewhere other than localhost:8000
 // (see backend/main.py / start_windows.ps1).
-const BACKEND_WS_URL = 'ws://localhost:8000/ws';
+const BACKEND_WS_URL = 'ws://127.0.0.1:8000/ws';
 
 type ServerMessage =
   | { type: 'transcription'; text: string }
