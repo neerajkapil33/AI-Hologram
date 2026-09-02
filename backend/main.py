@@ -7,16 +7,29 @@ from .brain import Brain
 from .tts import TTS
 from .stt import STT
 from .avatar import AvatarEngine
+from .tavus import Tavus
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env')
 app = FastAPI(title=os.getenv('APP_NAME', 'Neeraj Kapil Hologram'))
 app.add_middleware(CORSMiddleware, allow_origins=[os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')], allow_methods=['*'], allow_headers=['*'])
-brain, tts, stt, avatar = Brain(), TTS(), STT(), AvatarEngine(ROOT)
+brain, tts, stt, avatar, tavus = Brain(), TTS(), STT(), AvatarEngine(ROOT), Tavus()
 
 @app.get('/health')
 async def health():
-    return {'ok': True, 'avatar_engine': os.getenv('AVATAR_ENGINE','simple'), 'tts': bool(os.getenv('TTS_URL')), 'persona': 'neeraj-ai-career-companion'}
+    return {
+        'ok': True,
+        'avatar_engine': os.getenv('AVATAR_ENGINE','simple'),
+        'tavus': tavus.configured,
+        'tts': bool(os.getenv('TTS_URL')),
+        'persona': 'neeraj-ai-career-companion',
+    }
+
+@app.post('/api/tavus/conversation')
+async def tavus_conversation(payload: dict = {}):
+    """Create a real-time Tavus CVI room; the Tavus secret stays on the backend."""
+    language = str(payload.get('language', 'en-IN'))
+    return await asyncio.to_thread(tavus.create_conversation, language)
 
 @app.websocket('/ws')
 async def ws(websocket: WebSocket):
