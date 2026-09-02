@@ -4,6 +4,16 @@ import urllib.error
 import urllib.request
 
 
+LANGUAGE_NAMES = {
+    "en-IN": "english",
+    "hi-IN": "hindi",
+    "ta-IN": "tamil",
+    "te-IN": "telugu",
+    "bn-IN": "bengali",
+    "mr-IN": "marathi",
+}
+
+
 class Tavus:
     """Server-side Tavus CVI adapter. API credentials never reach the browser."""
 
@@ -24,11 +34,12 @@ class Tavus:
                 "message": "Tavus is not configured. Add TAVUS_API_KEY, TAVUS_REPLICA_ID and TAVUS_PERSONA_ID to .env.",
             }
 
+        language_name = LANGUAGE_NAMES.get(language, "multilingual")
         context = os.getenv(
             "TAVUS_CONVERSATIONAL_CONTEXT",
             "You are Neeraj AI, an AI representation of Neeraj Kapil. Be warm, confident, empathetic, strategic and practical. Default to English, but naturally switch to the user's selected language when possible. Focus on career strategy, leadership, talent acquisition, interviews, resumes, LinkedIn, job search, skills and global career opportunities. Never claim to be the physical Neeraj or invent private biography. Listen before advising, and be concise enough for spoken conversation.",
         )
-        context = f"{context}\nCurrent preferred user language: {language}."
+        context = f"{context}\nCurrent preferred user language: {language_name}."
         payload = {
             "replica_id": self.replica_id,
             "persona_id": self.persona_id,
@@ -39,6 +50,7 @@ class Tavus:
                 "Hi, I’m Neeraj AI. What would you like to work on today?",
             ),
             "max_participants": 2,
+            "properties": {"language": language_name},
         }
         request = urllib.request.Request(
             f"{self.base_url}/v2/conversations",
