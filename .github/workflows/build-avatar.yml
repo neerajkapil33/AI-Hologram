@@ -11,56 +11,53 @@ on:
       - '.github/workflows/build-avatar.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: neeraj-avatar-build
   cancel-in-progress: false
 
 jobs:
-  validate-production:
-    name: Validate production Neeraj GLB
+  validate:
+    name: Validate Neeraj avatar inputs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Verify identity references
+      - name: Verify approved identity references
         run: |
           test -s assets_private/neeraj.jpg
           test -s assets_private/neeraj-reference.mp4
           test -s assets_private/neeraj-voice-reference.wav
 
       - name: Validate production GLB when present
-        if: hashFiles('public/avatar/avatar.glb') != ''
-        run: python scripts/avatar/validate_glb.py public/avatar/avatar.glb
-
-      - name: Report missing production asset
-        if: hashFiles('public/avatar/avatar.glb') == ''
+        shell: bash
         run: |
-          echo 'Production gate: public/avatar/avatar.glb is not present yet.'
-          echo 'The repository intentionally does not substitute a generic avatar.'
+          if [ -f public/avatar/avatar.glb ]; then
+            python scripts/avatar/validate_glb.py public/avatar/avatar.glb
+          else
+            echo 'Production GLB not present; no generic avatar will be substituted.'
+          fi
 
-  build-photo-reference:
+  facial-reference:
     name: Build Neeraj facial reference GLB
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    needs: validate
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Build credential-free facial GLB
+      - name: Generate photo-driven facial GLB
         run: |
           mkdir -p public/avatar
           node scripts/avatar/generate_photo_glb.mjs assets_private/neeraj.jpg public/avatar/neeraj-face.glb
@@ -73,14 +70,19 @@ jobs:
           path: public/avatar/neeraj-face.glb
           if-no-files-found: error
 
-  production:
-    name: Production avatar contract
+  production-gate:
+    name: Production GLB gate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: validate-production
-    if: hashFiles('public/avatar/avatar.glb') != ''
+    needs: validate
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Validate final contract
-        run: python scripts/avatar/validate_glb.py public/avatar/avatar.glb
+      - name: Require a real rigged production GLB
+        shell: bash
+        run: |
+          if [ ! -f public/avatar/avatar.glb ]; then
+            echo 'No public/avatar/avatar.glb exists yet.'
+            echo 'The production gate remains closed until a real Neeraj full-body rigged GLB is supplied/generated.'
+            exit 1
+          fi
+          python scripts/avatar/validate_glb.py public/avatar/avatar.glb
