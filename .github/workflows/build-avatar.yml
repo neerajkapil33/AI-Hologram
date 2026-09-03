@@ -1,33 +1,84 @@
 name: Build Neeraj AI Avatar
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'assets_private/neeraj.jpg'
       - 'scripts/avatar/**'
-      - 'scripts/blender/**'
       - '.github/workflows/build-avatar.yml'
-  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: neeraj-avatar-build
+  cancel-in-progress: false
 
 jobs:
   avatar:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Check AvatarSDK credentials
+      - name: Verify master identity reference
+        run: |
+          test -s assets_private/neeraj.jpg
+          file assets_private/neeraj.jpg
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install AvatarSDK generator dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Generate Neeraj GLB with AvatarSDK
         env:
           AVATARSDK_CLIENT_ID: ${{ secrets.AVATARSDK_CLIENT_ID }}
           AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
         run: |
-          test -n "$AVATARSDK_CLIENT_ID" || { echo 'Missing AVATARSDK_CLIENT_ID'; exit 1; }
-          test -n "$AVATARSDK_CLIENT_SECRET" || { echo 'Missing AVATARSDK_CLIENT_SECRET'; exit 1; }
-          test -f assets_private/neeraj.jpg || { echo 'Missing assets_private/neeraj.jpg'; exit 1; }
+          test -n "$AVATARSDK_CLIENT_ID" || { echo 'Missing GitHub secret: AVATARSDK_CLIENT_ID'; exit 1; }
+          test -n "$AVATARSDK_CLIENT_SECRET" || { echo 'Missing GitHub secret: AVATARSDK_CLIENT_SECRET'; exit 1; }
+          python scripts/avatar/avatarsdk_generate.py
 
-      - name: AvatarSDK generation placeholder guard
+      - name: Validate generated GLB container
         run: |
-          echo 'AvatarSDK credentials and master reference are present.'
-          echo 'The API generation/download implementation must be enabled here before publishing avatar.glb.'
-          exit 1
+          test -s public/avatar/avatar.glb
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('public/avatar/avatar.glb')
+          data = p.read_bytes()
+          if data[:4] != b'glTF':
+              raise SystemExit('Generated file is not a GLB (missing glTF header)')
+          if len(data) < 20:
+              raise SystemExit('Generated GLB is unexpectedly small')
+          declared = int.from_bytes(data[8:12], 'little')
+          if declared != len(data):
+              raise SystemExit(f'Invalid GLB length: header={declared}, actual={len(data)}')
+          print(f'Validated GLB: {len(data):,} bytes')
+          PY
+
+      - name: Show avatar asset status
+        run: |
+          ls -lh public/avatar/avatar.glb
+          sha256sum public/avatar/avatar.glb
+
+      - name: Publish generated GLB to main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/avatar/avatar.glb
+          if git diff --cached --quiet; then
+            echo 'No GLB change to publish.'
+            exit 0
+          fi
+          git commit -m 'build: publish generated Neeraj AI avatar GLB'
+          git push origin HEAD:main
