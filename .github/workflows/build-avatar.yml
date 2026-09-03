@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'assets_private/neeraj.jpg'
+      - 'assets_private/**'
       - 'public/avatar/avatar.glb'
       - 'scripts/avatar/**'
       - '.github/workflows/build-avatar.yml'
@@ -18,76 +18,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  avatar:
+  validate-production:
+    name: Validate production Neeraj GLB
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify master identity reference
+      - name: Verify identity references
         run: |
           test -s assets_private/neeraj.jpg
-          file assets_private/neeraj.jpg
+          test -s assets_private/neeraj-reference.mp4
+          test -s assets_private/neeraj-voice-reference.wav
 
-      - name: Detect available avatar generation route
-        id: route
-        env:
-          AVATARSDK_CLIENT_ID: ${{ secrets.AVATARSDK_CLIENT_ID }}
-          AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
-          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          if [ -n "$AVATARSDK_CLIENT_ID" ] && [ -n "$AVATARSDK_CLIENT_SECRET" ]; then
-            echo "mode=avatarsdk" >> "$GITHUB_OUTPUT"
-            echo "AvatarSDK credentials detected; using the full-body production route."
-          elif [ "$HEAD_MESSAGE" = "build: publish generated Neeraj avatar asset" ]; then
-            echo "mode=ingest" >> "$GITHUB_OUTPUT"
-            echo "Generated-asset commit detected; validation only, preventing a build loop."
-          else
-            echo "mode=photo" >> "$GITHUB_OUTPUT"
-            echo "Using the credential-free photo-to-ARKit-GLB route."
-          fi
-
-      - name: Setup Python
-        if: steps.route.outputs.mode == 'avatarsdk' || (steps.route.outputs.mode == 'ingest' && hashFiles('public/avatar/avatar.glb') != '')
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install AvatarSDK generator dependency
-        if: steps.route.outputs.mode == 'avatarsdk'
-        run: python -m pip install --disable-pip-version-check requests
-
-      - name: Generate full-body Neeraj GLB with AvatarSDK
-        if: steps.route.outputs.mode == 'avatarsdk'
-        env:
-          AVATARSDK_CLIENT_ID: ${{ secrets.AVATARSDK_CLIENT_ID }}
-          AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
-        run: python scripts/avatar/avatarsdk_generate.py
-
-      - name: Generate Neeraj photo-driven animated GLB
-        if: steps.route.outputs.mode == 'photo'
-        run: |
-          node scripts/avatar/generate_photo_glb.mjs assets_private/neeraj.jpg public/avatar/avatar.glb
-          test -s public/avatar/avatar.glb
-          node -e "const fs=require('fs'); const b=fs.readFileSync('public/avatar/avatar.glb'); if(b.subarray(0,4).toString()!=='glTF') process.exit(1); console.log('Valid GLB header:', b.length, 'bytes')"
-
-      - name: Validate full-body production GLB
-        if: steps.route.outputs.mode == 'avatarsdk' || (steps.route.outputs.mode == 'ingest' && hashFiles('public/avatar/avatar.glb') != '')
+      - name: Validate production GLB when present
+        if: hashFiles('public/avatar/avatar.glb') != ''
         run: python scripts/avatar/validate_glb.py public/avatar/avatar.glb
 
-      - name: Publish generated avatar asset to main
-        if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'photo'
+      - name: Report missing production asset
+        if: hashFiles('public/avatar/avatar.glb') == ''
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public/avatar/avatar.glb
-          if git diff --cached --quiet; then
-            echo 'No avatar asset change to publish.'
-            exit 0
-          fi
-          git commit -m 'build: publish generated Neeraj avatar asset'
-          git push origin HEAD:main
+          echo 'Production gate: public/avatar/avatar.glb is not present yet.'
+          echo 'The repository intentionally does not substitute a generic avatar.'
+
+  build-photo-reference:
+    name: Build Neeraj facial reference GLB
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build credential-free facial GLB
+        run: |
+          mkdir -p public/avatar
+          node scripts/avatar/generate_photo_glb.mjs assets_private/neeraj.jpg public/avatar/neeraj-face.glb
+          test -s public/avatar/neeraj-face.glb
+
+      - name: Upload facial reference artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neeraj-facial-reference-glb
+          path: public/avatar/neeraj-face.glb
+          if-no-files-found: error
+
+  production:
+    name: Production avatar contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate-production
+    if: hashFiles('public/avatar/avatar.glb') != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate final contract
+        run: python scripts/avatar/validate_glb.py public/avatar/avatar.glb
