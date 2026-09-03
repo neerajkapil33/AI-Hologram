@@ -25,9 +25,10 @@ type LiveRoom = {
   configured?: boolean;
 };
 
-// Use the authorized Neeraj reference already stored in the repository.
-// Do not hotlink an external profile image or a placeholder avatar.
-const PROFILE_IMAGE = '/assets_private/neeraj.jpg';
+// The public profile image is the approved Neeraj likeness reference used by the deployed UI.
+// Generated talking-head video is still produced by the avatar engine; the source reference video
+// must never be presented as a live AI response.
+const PROFILE_IMAGE = '/profile/neeraj-profile.jpg';
 const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
 
 function App() {
