@@ -25,10 +25,9 @@ type LiveRoom = {
   configured?: boolean;
 };
 
-// Served from public/profile/ (bundled with the app itself), not hotlinked
-// from the git repo — decouples the live site from repo/branch state and
-// works whether the repo is public or private.
-const PROFILE_IMAGE = '/profile/neeraj-profile.jpg';
+// Use the authorized Neeraj reference already stored in the repository.
+// Do not hotlink an external profile image or a placeholder avatar.
+const PROFILE_IMAGE = '/assets_private/neeraj.jpg';
 const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
 
 function App() {
@@ -139,11 +138,7 @@ function App() {
           <div className="stage-label"><span>●</span> {mode === 'profile' ? 'CAREER COACH PROFILE' : liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE AI CAREER COMPANION'}</div>
           {liveRoom?.conversation_url ? (
             <div className="live-call-stage">
-              <iframe
-                title="Neeraj AI live video career companion"
-                src={liveRoom.conversation_url}
-                allow="camera; microphone; autoplay; fullscreen; display-capture"
-              />
+              <iframe title="Neeraj AI live video career companion" src={liveRoom.conversation_url} allow="camera; microphone; autoplay; fullscreen; display-capture" />
               <div className="call-badge">● LIVE • AI REPRESENTATION</div>
             </div>
           ) : mode === 'profile' ? (
