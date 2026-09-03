@@ -23,6 +23,9 @@ export type AvatarCommand =
 
 type FaceMesh = THREE.Mesh & { morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[] };
 
+const LOCAL_NEERAJ_GLB = '/avatar/avatar.glb';
+const RPM_PREVIEW_GLB = 'https://readyplayerme.github.io/visage/male.glb';
+
 export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObject<{ command: (c: AvatarCommand) => void } | null>; onStatus: (s: string) => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
 
@@ -87,15 +90,22 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
     } };
 
     const load = async () => {
-      try {
-        const gltf = await new GLTFLoader().loadAsync('/avatar/avatar.glb');
-        model=gltf.scene;
-        const box=new THREE.Box3().setFromObject(model), size=box.getSize(new THREE.Vector3()), center=box.getCenter(new THREE.Vector3());
-        model.position.sub(center); model.position.y+=size.y/2; model.scale.setScalar(3/Math.max(size.y,.001));
-        model.traverse(o=>{const m=o as THREE.Mesh;if(m.isMesh){m.castShadow=true;m.receiveShadow=true;}}); avatar.add(model);
-        if(gltf.animations.length){mixer=new THREE.AnimationMixer(model);const idle=gltf.animations.find(a=>/idle|breath|stand/i.test(a.name))??gltf.animations[0];mixer.clipAction(idle).play();}
-        onStatus(`REAL AVATAR ONLINE • ${gltf.animations.length} BODY ANIMATIONS`);
-      } catch { fallback=fallbackAvatar(); avatar.add(fallback); onStatus('AVATAR TEST MODE • REAL NEERAJ GLB REQUIRED'); }
+      const configured = (import.meta.env.VITE_NEERAJ_GLB_URL as string | undefined)?.trim() || LOCAL_NEERAJ_GLB;
+      const useRpmPreview = String(import.meta.env.VITE_RPM_PREVIEW).toLowerCase() === 'true';
+      const sources = useRpmPreview ? [configured, RPM_PREVIEW_GLB] : [configured];
+      for (const source of sources) {
+        try {
+          const gltf = await new GLTFLoader().loadAsync(source);
+          model=gltf.scene;
+          const box=new THREE.Box3().setFromObject(model), size=box.getSize(new THREE.Vector3()), center=box.getCenter(new THREE.Vector3());
+          model.position.sub(center); model.position.y+=size.y/2; model.scale.setScalar(3/Math.max(size.y,.001));
+          model.traverse(o=>{const m=o as THREE.Mesh;if(m.isMesh){m.castShadow=true;m.receiveShadow=true;}}); avatar.add(model);
+          if(gltf.animations.length){mixer=new THREE.AnimationMixer(model);const idle=gltf.animations.find(a=>/idle|breath|stand/i.test(a.name))??gltf.animations[0];mixer.clipAction(idle).play();}
+          onStatus(source === RPM_PREVIEW_GLB ? `READY PLAYER ME RIG PREVIEW • ${gltf.animations.length} ANIMATIONS` : `NEERAJ GLB ONLINE • ${gltf.animations.length} BODY ANIMATIONS`);
+          return;
+        } catch { /* try next configured source */ }
+      }
+      fallback=fallbackAvatar(); avatar.add(fallback); onStatus('AVATAR TEST MODE • ADD NEERAJ READY PLAYER ME GLB');
     };
     void load();
 
