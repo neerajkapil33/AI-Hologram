@@ -25,7 +25,10 @@ type LiveRoom = {
   configured?: boolean;
 };
 
-const PROFILE_IMAGE = 'https://raw.githubusercontent.com/neerajkapil33/AI-Hologram/main/assets_private/neeraj.jpg';
+// Served from public/profile/ (bundled with the app itself), not hotlinked
+// from the git repo — decouples the live site from repo/branch state and
+// works whether the repo is public or private.
+const PROFILE_IMAGE = '/profile/neeraj-profile.jpg';
 const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
 
 function App() {
