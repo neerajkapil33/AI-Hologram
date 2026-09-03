@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Neeraj AI — Real Human Avatar Demo</title>
+<style>
+:root{font-family:Inter,system-ui,sans-serif;background:#020609;color:#e8fbff}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 20%,#073a4b,#020609 55%);display:grid;place-items:center}.card{width:min(1100px,94vw);padding:28px;border:1px solid #1b9db5;border-radius:24px;background:rgba(2,12,18,.82);box-shadow:0 0 70px #00d9ff22}.top{display:flex;justify-content:space-between;align-items:center;gap:20px}.brand{font-weight:800;letter-spacing:.12em}.pill{border:1px solid #1b9db5;border-radius:999px;padding:8px 12px;font-size:12px;color:#80eaff}.stage{margin-top:22px;min-height:600px;border-radius:20px;border:1px solid #124d5b;display:grid;place-items:center;overflow:hidden;position:relative;background:linear-gradient(180deg,#03131b,#020609)}.stage img,.stage video{max-width:100%;max-height:600px;object-fit:contain;display:block}.stage video{width:100%;height:600px;background:#000}.glow{position:absolute;inset:auto 10% 4%;height:80px;background:#00d9ff22;filter:blur(30px);pointer-events:none}.controls{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}.controls label,.controls button{border:1px solid #1b9db5;background:#061923;color:#e8fbff;border-radius:12px;padding:12px 16px;cursor:pointer}.controls input{display:none}.status{margin-top:14px;color:#8defff;font-size:13px}.note{margin-top:14px;color:#83aeb8;font-size:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="top"><div><div class="brand">NEERAJ AI</div><div>Real-human avatar clip bridge</div></div><div class="pill">AI REPRESENTATION</div></div>
+<div class="stage" id="stage"><img id="photo" src="../assets_private/neeraj.jpg" alt="Neeraj Kapil AI avatar reference"><div class="glow"></div></div>
+<div class="controls">
+<label>Load generated talking MP4<input id="videoInput" type="file" accept="video/mp4,video/webm"></label>
+<button id="clear">Back to Neeraj profile</button>
+</div>
+<div class="status" id="status">NEERAJ AI • PROFILE READY</div>
+<div class="note">Use this bridge with a talking-head clip generated from the supplied Neeraj reference by a lip-sync engine. The source reference video is not replayed by this page. Generated clips can be tested here immediately; the same player can later be replaced by a real-time API/GPU avatar stream.</div>
+</main>
+<script>
+const input=document.getElementById('videoInput'),stage=document.getElementById('stage'),photo=document.getElementById('photo'),status=document.getElementById('status');let current=null;
+input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;if(current)URL.revokeObjectURL(current);current=URL.createObjectURL(file);photo.remove();const v=document.createElement('video');v.controls=true;v.autoplay=true;v.playsInline=true;v.src=current;stage.prepend(v);status.textContent='NEERAJ AI • GENERATED TALKING AVATAR CLIP PLAYING';});
+document.getElementById('clear').onclick=()=>{const v=stage.querySelector('video');if(v)v.remove();stage.prepend(photo);if(current){URL.revokeObjectURL(current);current=null}status.textContent='NEERAJ AI • PROFILE READY'};
+</script>
+</body>
+</html>
