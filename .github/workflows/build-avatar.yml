@@ -1,0 +1,33 @@
+name: Build Neeraj AI Avatar
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'assets_private/neeraj.jpg'
+      - 'scripts/avatar/**'
+      - 'scripts/blender/**'
+      - '.github/workflows/build-avatar.yml'
+  workflow_dispatch:
+
+jobs:
+  avatar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check AvatarSDK credentials
+        env:
+          AVATARSDK_CLIENT_ID: ${{ secrets.AVATARSDK_CLIENT_ID }}
+          AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
+        run: |
+          test -n "$AVATARSDK_CLIENT_ID" || { echo 'Missing AVATARSDK_CLIENT_ID'; exit 1; }
+          test -n "$AVATARSDK_CLIENT_SECRET" || { echo 'Missing AVATARSDK_CLIENT_SECRET'; exit 1; }
+          test -f assets_private/neeraj.jpg || { echo 'Missing assets_private/neeraj.jpg'; exit 1; }
+
+      - name: AvatarSDK generation placeholder guard
+        run: |
+          echo 'AvatarSDK credentials and master reference are present.'
+          echo 'The API generation/download implementation must be enabled here before publishing avatar.glb.'
+          exit 1
