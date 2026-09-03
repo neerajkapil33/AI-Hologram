@@ -7,6 +7,7 @@ on:
     paths:
       - 'assets_private/neeraj.jpg'
       - 'public/avatar/avatar.glb'
+      - 'public/avatar/neeraj-face.glb'
       - 'scripts/avatar/**'
       - '.github/workflows/build-avatar.yml'
 
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   avatar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -41,13 +42,13 @@ jobs:
         run: |
           if [ -n "$AVATARSDK_CLIENT_ID" ] && [ -n "$AVATARSDK_CLIENT_SECRET" ]; then
             echo "mode=avatarsdk" >> "$GITHUB_OUTPUT"
-            echo "AvatarSDK credentials detected; automated photo-to-avatar generation enabled."
+            echo "AvatarSDK credentials detected; using the full-body production route."
           elif [ -s public/avatar/avatar.glb ]; then
             echo "mode=ingest" >> "$GITHUB_OUTPUT"
-            echo "No AvatarSDK credentials; using existing production GLB."
+            echo "No AvatarSDK credentials; keeping the existing production GLB."
           else
-            echo "mode=blocked" >> "$GITHUB_OUTPUT"
-            echo "No AvatarSDK credentials and no production GLB."
+            echo "mode=photo" >> "$GITHUB_OUTPUT"
+            echo "No provider credentials; using the credential-free photo-to-ARKit-GLB route."
           fi
 
       - name: Setup Python
@@ -60,34 +61,44 @@ jobs:
         if: steps.route.outputs.mode == 'avatarsdk'
         run: python -m pip install --disable-pip-version-check requests
 
-      - name: Generate Neeraj GLB with AvatarSDK
+      - name: Generate full-body Neeraj GLB with AvatarSDK
         if: steps.route.outputs.mode == 'avatarsdk'
         env:
           AVATARSDK_CLIENT_ID: ${{ secrets.AVATARSDK_CLIENT_ID }}
           AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
         run: python scripts/avatar/avatarsdk_generate.py
 
-      - name: Validate production GLB
-        if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'ingest'
-        run: python scripts/avatar/validate_glb.py public/avatar/avatar.glb
+      - name: Setup Node for credential-free photo route
+        if: steps.route.outputs.mode == 'photo'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/avatar/package.json
 
-      - name: Explain missing generation input
-        if: steps.route.outputs.mode == 'blocked'
+      - name: Generate Neeraj photo-driven animated face GLB
+        if: steps.route.outputs.mode == 'photo'
         run: |
-          echo 'STOP: no production avatar is being substituted.'
-          echo 'Either configure AVATARSDK_CLIENT_ID + AVATARSDK_CLIENT_SECRET as GitHub Actions secrets,'
-          echo 'or export a rigged GLB with facial morph targets and place it at public/avatar/avatar.glb.'
-          exit 1
+          node scripts/avatar/generate_photo_glb.mjs assets_private/neeraj.jpg public/avatar/neeraj-face.glb
 
-      - name: Publish generated GLB to main
-        if: steps.route.outputs.mode == 'avatarsdk'
+      - name: Validate production GLB
+        run: |
+          if [ -s public/avatar/avatar.glb ]; then
+            python scripts/avatar/validate_glb.py public/avatar/avatar.glb
+          fi
+          if [ -s public/avatar/neeraj-face.glb ]; then
+            python scripts/avatar/validate_glb.py public/avatar/neeraj-face.glb
+          fi
+
+      - name: Publish generated avatar assets to main
+        if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'photo'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public/avatar/avatar.glb
+          git add public/avatar/avatar.glb public/avatar/neeraj-face.glb
           if git diff --cached --quiet; then
-            echo 'No GLB change to publish.'
+            echo 'No avatar asset change to publish.'
             exit 0
           fi
-          git commit -m 'build: publish generated Neeraj AI avatar GLB'
+          git commit -m 'build: publish generated Neeraj avatar asset'
           git push origin HEAD:main
