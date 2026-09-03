@@ -96,10 +96,10 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
     };
     void load();
 
-    const findBone = (names: string[]) => {
-      if (!model) return null;
+    const findBone = (root: THREE.Object3D | null, names: string[]): THREE.Object3D | null => {
+      if (!root) return null;
       let found: THREE.Object3D | null = null;
-      model.traverse(o => { if(found) return; const n=o.name.toLowerCase(); if(names.some(x=>n.includes(x))) found=o; });
+      root.traverse((o: THREE.Object3D) => { if(found) return; const n=o.name.toLowerCase(); if(names.some(x=>n.includes(x))) found=o; });
       return found;
     };
     const resize=()=>{const w=mount.clientWidth||1,h=mount.clientHeight||1;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);}; resize(); const ro=new ResizeObserver(resize); ro.observe(mount);
@@ -115,17 +115,17 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
       avatar.position.x = THREE.MathUtils.lerp(avatar.position.x, Math.sin(t*.31)*0.025, .02);
       avatar.position.z = THREE.MathUtils.lerp(avatar.position.z, bodyLean, .02);
 
-      const headBone=findBone(['head','neck']);
+      const headBone=findBone(model,['head','neck']);
       if(headBone) {
         const targetX=perf.head==='slight_tilt' ? Math.sin(t*1.2)*.035 : 0;
         const targetZ=perf.head==='slight_tilt' ? .025 : 0;
         headBone.rotation.x=THREE.MathUtils.lerp(headBone.rotation.x,targetX,.03);
         headBone.rotation.z=THREE.MathUtils.lerp(headBone.rotation.z,targetZ,.03);
       }
-      const spine=findBone(['spine','chest','upperchest']);
+      const spine=findBone(model,['spine','chest','upperchest']);
       if(spine) spine.rotation.x=THREE.MathUtils.lerp(spine.rotation.x,-bodyLean,.025);
-      const leftArm=findBone(['leftupperarm','leftarm','upper_arm_l']);
-      const rightArm=findBone(['rightupperarm','rightarm','upper_arm_r']);
+      const leftArm=findBone(model,['leftupperarm','leftarm','upper_arm_l']);
+      const rightArm=findBone(model,['rightupperarm','rightarm','upper_arm_r']);
       const gestureStrength=.18+.32*perf.intensity;
       if(perf.gesture==='open_hand'||perf.gesture==='explain'||perf.gesture==='enumerate') {
         if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-gestureStrength,.05);
