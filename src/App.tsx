@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { common, d } from 'typegpu';
 import { useConfigureContext, useFrame, useRoot } from '@typegpu/react';
-import { AvatarEngine, type AvatarCommand } from './AvatarEngine';
+import AvatarEngine, { type AvatarCommand } from './AvatarEngine';
 import { useHologramBrain, type AvatarPerformance } from './useHologramBrain';
 
 type Recognition = { start: () => void; stop: () => void; continuous: boolean; interimResults: boolean; lang: string; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((event: { error: string }) => void) | null; onend: (() => void) | null };
@@ -42,7 +42,7 @@ function App() {
     },
     onSpeechStart: () => { setSpeaking(true); setStatus('NEERAJ SPEAKING • LIVE AI VOICE + EXPRESSION'); command({ type: 'expression', value: 'speaking' }); },
     onSpeechEnd: () => { setSpeaking(false); setStatus('ONLINE • NEERAJ IS LISTENING'); command({ type: 'expression', value: 'neutral' }); command({ type: 'gesture', value: 'idle' }); },
-    onAmplitude: (level) => command({ type: 'viseme', value: 'mouthOpen', amount: level }),
+    onAmplitude: (level) => command({ type: 'viseme', value: 'mouthOpen', weight: level }),
     onAvatarVideo: (src) => setAvatarVideo(src),
   });
 
@@ -79,7 +79,7 @@ function App() {
         <aside className="left-rail"><div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>I help professionals navigate their career journey — with clarity, skills, opportunities and the right strategy.</p><button onClick={() => { setMode('companion'); setStatus('READY • TALK TO NEERAJ'); }}>Ask me anything…</button></div>{['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <div className="feature-row" key={a}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></div>; })}</aside>
         <section className="avatar-stage">
           <div className="stage-label"><span>●</span> {mode === 'profile' ? 'CAREER COACH PROFILE' : liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE AI CAREER COMPANION'}</div>
-          {liveRoom?.conversation_url ? <div className="live-call-stage"><iframe title="Neeraj AI live video career companion" src={liveRoom.conversation_url} allow="camera; microphone; autoplay; fullscreen; display-capture" /><div className="call-badge">● LIVE • AI REPRESENTATION</div></div> : mode === 'profile' ? <div className="profile-avatar"><img src={PROFILE_IMAGE} alt="Neeraj Kapil professional AI coach reference" /><div className="profile-glow" /></div> : <div className="live-avatar">{avatarVideo ? <video src={avatarVideo} autoPlay playsInline onEnded={() => setAvatarVideo(null)} /> : <AvatarEngine apiRef={apiRef} onStatus={setStatus} />}<div className="live-ring" /><div className="live-floor" /></div>}
+          {liveRoom?.conversation_url ? <div className="live-call-stage"><iframe title="Neeraj AI live video career companion" src={liveRoom.conversation_url} allow="camera; microphone; autoplay; fullscreen; display-capture" /><div className="call-badge">● LIVE • AI REPRESENTATION</div></div> : mode === 'profile' ? <div className="profile-avatar"><img src={PROFILE_IMAGE} alt="Neeraj Kapil professional AI coach reference" /><div className="profile-glow" /></div> : <div className="live-avatar">{avatarVideo ? <video src={avatarVideo} autoPlay playsInline onEnded={() => setAvatarVideo(null)} /> : <AvatarEngine onApi={(api) => { apiRef.current = api; }} onStatus={setStatus} />}<div className="live-ring" /><div className="live-floor" /></div>}
           <div className="avatar-name">NEERAJ</div><div className="avatar-sub">HIGH-FIDELITY AI REPLICA • CAREER INTELLIGENCE</div><div className="stage-message">{status}</div>
           {performance && mode === 'companion' && !liveRoom?.conversation_url && <div className="performance-strip"><span>FACE: {performance.expression}</span><span>GESTURE: {performance.gesture}</span><span>BODY: {performance.body}</span><span>GAZE: {performance.gaze}</span></div>}
           {mode === 'companion' && !liveRoom?.conversation_url && <div className="conversation"><div className="response">{response}</div>{transcript && <div className="transcript">YOU: {transcript}</div>}</div>}
