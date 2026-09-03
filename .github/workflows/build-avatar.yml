@@ -7,7 +7,6 @@ on:
     paths:
       - 'assets_private/neeraj.jpg'
       - 'public/avatar/avatar.glb'
-      - 'public/avatar/neeraj-face.glb'
       - 'scripts/avatar/**'
       - '.github/workflows/build-avatar.yml'
 
@@ -45,14 +44,17 @@ jobs:
             echo "AvatarSDK credentials detected; using the full-body production route."
           elif [ -s public/avatar/avatar.glb ]; then
             echo "mode=ingest" >> "$GITHUB_OUTPUT"
-            echo "No AvatarSDK credentials; keeping the existing production GLB."
+            echo "Existing full-body production GLB found; leaving it untouched."
+          elif [ -s public/avatar/neeraj-face.glb ]; then
+            echo "mode=ingest" >> "$GITHUB_OUTPUT"
+            echo "Existing credential-free Neeraj face GLB found; leaving it untouched."
           else
             echo "mode=photo" >> "$GITHUB_OUTPUT"
-            echo "No provider credentials; using the credential-free photo-to-ARKit-GLB route."
+            echo "No provider credentials or generated asset; using credential-free photo-to-ARKit-GLB route."
           fi
 
       - name: Setup Python
-        if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'ingest'
+        if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'ingest' && hashFiles('public/avatar/avatar.glb') != ''
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -68,27 +70,17 @@ jobs:
           AVATARSDK_CLIENT_SECRET: ${{ secrets.AVATARSDK_CLIENT_SECRET }}
         run: python scripts/avatar/avatarsdk_generate.py
 
-      - name: Setup Node for credential-free photo route
-        if: steps.route.outputs.mode == 'photo'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: scripts/avatar/package.json
-
       - name: Generate Neeraj photo-driven animated face GLB
         if: steps.route.outputs.mode == 'photo'
         run: |
           node scripts/avatar/generate_photo_glb.mjs assets_private/neeraj.jpg public/avatar/neeraj-face.glb
+          test -s public/avatar/neeraj-face.glb
+          node -e "const fs=require('fs'); const b=fs.readFileSync('public/avatar/neeraj-face.glb'); if(b.subarray(0,4).toString()!=='glTF') process.exit(1); console.log('Valid GLB header:', b.length, 'bytes')"
 
-      - name: Validate production GLB
+      - name: Validate full-body production GLB
+        if: steps.route.outputs.mode == 'avatarsdk' || (steps.route.outputs.mode == 'ingest' && hashFiles('public/avatar/avatar.glb') != '')
         run: |
-          if [ -s public/avatar/avatar.glb ]; then
-            python scripts/avatar/validate_glb.py public/avatar/avatar.glb
-          fi
-          if [ -s public/avatar/neeraj-face.glb ]; then
-            python scripts/avatar/validate_glb.py public/avatar/neeraj-face.glb
-          fi
+          python scripts/avatar/validate_glb.py public/avatar/avatar.glb
 
       - name: Publish generated avatar assets to main
         if: steps.route.outputs.mode == 'avatarsdk' || steps.route.outputs.mode == 'photo'
