@@ -9,13 +9,16 @@ export type AvatarPerformance = {
   head: string;
   body: string;
   gaze: string;
+  wardrobe?: string;
+  environment?: string;
+  activity?: string;
   intensity: number;
 };
 
 export type AvatarCommand =
   | { type: 'expression'; value: 'neutral' | 'happy' | 'thinking' | 'speaking' }
   | { type: 'viseme'; value: string; amount?: number }
-  | { type: 'gesture'; value: 'wave' | 'nod' | 'idle' | 'acknowledge' | 'open_hand' | 'contrast' | 'emphasis' | 'explain' | 'enumerate' | 'question' }
+  | { type: 'gesture'; value: 'wave' | 'nod' | 'idle' | 'acknowledge' | 'open_hand' | 'contrast' | 'emphasis' | 'explain' | 'enumerate' | 'question' | 'namaste' | 'clap' | 'bye_wave' | 'flying_kiss' | 'kiss_gesture' }
   | { type: 'performance'; value: AvatarPerformance };
 
 type FaceMesh = THREE.Mesh & { morphTargetDictionary?: Record<string, number>; morphTargetInfluences?: number[] };
@@ -80,7 +83,7 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
       if(c.type==='expression') setExpression(c.value);
       if(c.type==='viseme') morph(c.value,c.amount??.8);
       if(c.type==='gesture') gesture=c.value;
-      if(c.type==='performance') { perf=c.value; gesture=c.value.gesture; if(c.value.expression==='smile'||c.value.emotion==='positive') setExpression('happy'); else if(c.value.expression==='thoughtful'||c.value.emotion==='thoughtful') setExpression('thinking'); }
+      if(c.type==='performance') { perf=c.value; gesture=c.value.gesture; const e=c.value.expression; if(e==='smile'||e==='warm_smile'||e==='kind_smile'||c.value.emotion==='positive'||c.value.emotion==='happy') setExpression('happy'); else if(e==='thoughtful'||e==='thinking'||c.value.emotion==='thoughtful') setExpression('thinking'); else if(e==='speaking') setExpression('speaking'); else setExpression('neutral'); }
     } };
 
     const load = async () => {
@@ -92,7 +95,7 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
         model.traverse(o=>{const m=o as THREE.Mesh;if(m.isMesh){m.castShadow=true;m.receiveShadow=true;}}); avatar.add(model);
         if(gltf.animations.length){mixer=new THREE.AnimationMixer(model);const idle=gltf.animations.find(a=>/idle|breath|stand/i.test(a.name))??gltf.animations[0];mixer.clipAction(idle).play();}
         onStatus(`REAL AVATAR ONLINE • ${gltf.animations.length} BODY ANIMATIONS`);
-      } catch { fallback=fallbackAvatar(); avatar.add(fallback); onStatus('AVATAR TEST MODE • REAL GLB REQUIRED'); }
+      } catch { fallback=fallbackAvatar(); avatar.add(fallback); onStatus('AVATAR TEST MODE • REAL NEERAJ GLB REQUIRED'); }
     };
     void load();
 
@@ -110,15 +113,15 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
 
       const t=performance.now()*.001;
       const bodyLean = perf.body==='forward_lean' ? 0.045*perf.intensity : 0;
-      const sway = perf.body==='natural_shift' ? Math.sin(t*.7)*0.018 : Math.sin(t*.35)*0.006;
+      const sway = perf.body==='natural_shift' || perf.activity==='conversation' || perf.activity==='advising' ? Math.sin(t*.7)*.018 : Math.sin(t*.35)*.006;
       avatar.rotation.y = THREE.MathUtils.lerp(avatar.rotation.y, sway, .025);
-      avatar.position.x = THREE.MathUtils.lerp(avatar.position.x, Math.sin(t*.31)*0.025, .02);
+      avatar.position.x = THREE.MathUtils.lerp(avatar.position.x, Math.sin(t*.31)*.025, .02);
       avatar.position.z = THREE.MathUtils.lerp(avatar.position.z, bodyLean, .02);
 
       const headBone=findBone(model,['head','neck']);
       if(headBone) {
-        const targetX=perf.head==='slight_tilt' ? Math.sin(t*1.2)*.035 : 0;
-        const targetZ=perf.head==='slight_tilt' ? .025 : 0;
+        const targetX=perf.head==='slight_tilt'||perf.head==='soft_tilt' ? Math.sin(t*1.2)*.035 : 0;
+        const targetZ=perf.head==='slight_tilt'||perf.head==='soft_tilt' ? .025 : 0;
         headBone.rotation.x=THREE.MathUtils.lerp(headBone.rotation.x,targetX,.03);
         headBone.rotation.z=THREE.MathUtils.lerp(headBone.rotation.z,targetZ,.03);
       }
@@ -127,21 +130,42 @@ export function AvatarEngine({ apiRef, onStatus }: { apiRef: React.MutableRefObj
       const leftArm=findBone(model,['leftupperarm','leftarm','upper_arm_l']);
       const rightArm=findBone(model,['rightupperarm','rightarm','upper_arm_r']);
       const gestureStrength=.18+.32*perf.intensity;
-      if(perf.gesture==='open_hand'||perf.gesture==='explain'||perf.gesture==='enumerate') {
+      if(['open_hand','explain','enumerate','welcome'].includes(perf.gesture)) {
         if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-gestureStrength,.05);
         if(leftArm) leftArm.rotation.z=THREE.MathUtils.lerp(leftArm.rotation.z,gestureStrength*.35,.05);
       } else if(perf.gesture==='contrast') {
         if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-gestureStrength*1.15,.05);
       } else if(perf.gesture==='emphasis') {
         if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-gestureStrength*.7,.05);
-      } else if(perf.gesture==='acknowledge') {
+      } else if(perf.gesture==='acknowledge'||perf.gesture==='nod') {
         if(headBone) headBone.rotation.x=THREE.MathUtils.lerp(headBone.rotation.x,.035*Math.sin(t*3),.08);
+      } else if(perf.gesture==='namaste') {
+        if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-.42,.08);
+        if(leftArm) leftArm.rotation.z=THREE.MathUtils.lerp(leftArm.rotation.z,.42,.08);
+      } else if(perf.gesture==='clap') {
+        if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-.3+Math.sin(t*8)*.12,.08);
+        if(leftArm) leftArm.rotation.z=THREE.MathUtils.lerp(leftArm.rotation.z,.3-Math.sin(t*8)*.12,.08);
+      } else if(perf.gesture==='flying_kiss'||perf.gesture==='kiss_gesture') {
+        if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,-.24,.06);
+        if(headBone) headBone.rotation.x=THREE.MathUtils.lerp(headBone.rotation.x,.015*Math.sin(t*1.4),.04);
       } else {
         if(rightArm) rightArm.rotation.z=THREE.MathUtils.lerp(rightArm.rotation.z,0,.03);
         if(leftArm) leftArm.rotation.z=THREE.MathUtils.lerp(leftArm.rotation.z,0,.03);
       }
 
-      if(fallback){fallback.position.y=Math.sin(t*1.35)*.035;fallback.rotation.y=THREE.MathUtils.lerp(fallback.rotation.y,Math.sin(t*.35)*.055,.025);fallback.position.x=THREE.MathUtils.lerp(fallback.position.x,Math.sin(t*.31)*.025,.02);fallback.position.z=THREE.MathUtils.lerp(fallback.position.z,bodyLean,.02);fallback.traverse(o=>{const p=o.userData.part as string|undefined;if(p==='mouth')o.scale.x=speaking?1.2+Math.abs(Math.sin(t*11))*1.8:1;if(p==='rightArm')o.rotation.z=.12+(gesture==='wave'?Math.sin(t*7)*.55:(['open_hand','explain','enumerate'].includes(perf.gesture)?-.28:0));if(p==='leftArm')o.rotation.z=-.12+(perf.gesture==='contrast'?.22:0);if(p==='head')o.rotation.z=perf.head==='slight_tilt'?Math.sin(t*1.5)*.035:Math.sin(t*.7)*.012;});}
+      if(fallback){
+        fallback.position.y=Math.sin(t*1.35)*.035;
+        fallback.rotation.y=THREE.MathUtils.lerp(fallback.rotation.y,Math.sin(t*.35)*.055,.025);
+        fallback.position.x=THREE.MathUtils.lerp(fallback.position.x,Math.sin(t*.31)*.025,.02);
+        fallback.position.z=THREE.MathUtils.lerp(fallback.position.z,bodyLean,.02);
+        fallback.traverse(o=>{
+          const p=o.userData.part as string|undefined;
+          if(p==='mouth')o.scale.x=speaking?1.2+Math.abs(Math.sin(t*11))*1.8:1;
+          if(p==='rightArm')o.rotation.z=.12+(gesture==='wave'||perf.gesture==='wave'?Math.sin(t*7)*.55:(['open_hand','explain','enumerate','welcome'].includes(perf.gesture)?-.28:(perf.gesture==='namaste'||perf.gesture==='clap'||perf.gesture==='flying_kiss'||perf.gesture==='kiss_gesture'?-0.2:0)));
+          if(p==='leftArm')o.rotation.z=-.12+(perf.gesture==='contrast'?.22:(perf.gesture==='namaste'?.2:(perf.gesture==='clap'?.25:0)));
+          if(p==='head')o.rotation.z=perf.head==='slight_tilt'||perf.head==='soft_tilt'?Math.sin(t*1.5)*.035:Math.sin(t*.7)*.012;
+        });
+      }
       renderer.render(scene,camera);
     });
     return ()=>{renderer.setAnimationLoop(null);ro.disconnect();apiRef.current=null;mixer?.stopAllAction();renderer.dispose();if(renderer.domElement.parentElement===mount)mount.removeChild(renderer.domElement);};
