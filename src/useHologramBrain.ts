@@ -2,9 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const BACKEND_WS_URL = import.meta.env.VITE_BACKEND_WS_URL ?? 'ws://127.0.0.1:8000/ws';
 
+export type AvatarPerformance = {
+  emotion: string;
+  expression: string;
+  gesture: string;
+  head: string;
+  body: string;
+  gaze: string;
+  intensity: number;
+};
+
 type ServerMessage =
   | { type: 'transcription'; text: string }
   | { type: 'message'; role: 'assistant'; content: string }
+  | { type: 'performance'; performance: AvatarPerformance }
   | { type: 'audio'; audio: string; mime: string }
   | { type: 'avatar_video'; video: string; mime: string }
   | { type: 'done' };
@@ -16,9 +27,10 @@ export function useHologramBrain(opts: {
   onSpeechStart: () => void;
   onSpeechEnd: () => void;
   onAmplitude: (level: number) => void;
+  onPerformance?: (performance: AvatarPerformance) => void;
   onAvatarVideo?: (src: string | null) => void;
 }) {
-  const { onAssistantText, onSpeechStart, onSpeechEnd, onAmplitude, onAvatarVideo } = opts;
+  const { onAssistantText, onSpeechStart, onSpeechEnd, onAmplitude, onPerformance, onAvatarVideo } = opts;
   const socketRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -34,6 +46,7 @@ export function useHologramBrain(opts: {
     socket.onmessage = async (event) => {
       const data: ServerMessage = JSON.parse(event.data);
       if (data.type === 'message') onAssistantText(data.content);
+      else if (data.type === 'performance') onPerformance?.(data.performance);
       else if (data.type === 'audio') await playBase64Audio(data.audio);
       else if (data.type === 'avatar_video') {
         const bytes = Uint8Array.from(atob(data.video), (c) => c.charCodeAt(0));
