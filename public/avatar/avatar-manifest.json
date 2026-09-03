@@ -1,36 +1,91 @@
 {
   "avatar": "Neeraj Kapil AI Digital Human",
-  "status": "generation_pipeline_configured",
-  "profile_mode": {
-    "purpose": "professional career coach identity",
-    "visual_reference": "approved Neeraj career-coach reference image"
+  "identity_lock": {
+    "face": "Neeraj Kapil reference identity",
+    "body": "Neeraj Kapil reference body proportions and appearance",
+    "voice": "Neeraj Kapil authorized voice reference",
+    "identity_must_remain_constant": true,
+    "presentation_may_change": true
   },
-  "live_mode": {
-    "purpose": "AI Career Companion / Video Call",
-    "reference_video_policy": "source material only; never replay the raw reference video as an answer",
-    "preferred_pipeline": "generated avatar performance + cloned voice + lip sync"
-  },
+  "status": "identity_and_adaptive_performance_configured",
   "identity_references": [
     "assets_private/neeraj.jpg",
+    "assets_private/Neeraj.png",
     "assets_private/neeraj-reference.mp4",
     "assets_private/neeraj-voice-reference.wav"
   ],
-  "requirements": {
+  "visual_requirements": {
     "full_body": true,
     "human_face": true,
     "human_hands": true,
     "feet_and_shoes": true,
     "luxury_watch_detail": true,
+    "persistent_neeraj_identity": true,
     "skeleton_rig": true,
     "facial_morphs": true,
     "eye_blink": true,
     "lip_sync": true,
     "expressions": true,
     "body_gestures": true,
+    "walking": true,
+    "sitting": true,
+    "spatial_movement": true,
     "multilingual": true,
-    "video_call_mode": true,
-    "consent_based_memory": true
+    "video_call_mode": true
   },
-  "expression_states": ["neutral", "happy", "thinking", "empathetic", "concerned", "excited", "speaking", "listening", "celebrating"],
-  "gesture_states": ["idle", "nod", "wave", "open-hand", "explain", "listen", "celebrate", "dance", "spin"]
+  "wardrobe_modes": [
+    "executive_suit_shirt_tie_watch",
+    "luxury_shirt_trousers_watch",
+    "shirt_pants_tie_watch",
+    "smart_casual_shirt_jeans_watch",
+    "premium_tshirt_jeans_watch",
+    "polo_trousers_watch",
+    "casual_male",
+    "fitness_tshirt_shorts",
+    "sport_specific",
+    "dance_performance",
+    "romantic_smart",
+    "character_adaptive",
+    "user_selected"
+  ],
+  "environment_modes": [
+    "executive_studio",
+    "office",
+    "classroom",
+    "gym",
+    "sports_arena",
+    "dance_studio",
+    "cinematic",
+    "romantic_lounge",
+    "outdoors",
+    "casual_lounge",
+    "user_selected"
+  ],
+  "expression_states": [
+    "neutral", "happy", "smile", "laugh", "thinking", "smart", "sad",
+    "confused", "angry", "firm", "aggressive_assertive", "romantic",
+    "affectionate", "warm", "kind", "empathetic", "concerned", "excited",
+    "humorous", "calm", "listening", "speaking", "surprised"
+  ],
+  "gesture_states": [
+    "idle", "hello", "hi", "wave", "bye_wave", "namaste", "clap",
+    "open_hand", "explain", "enumerate", "point", "emphasis", "contrast",
+    "acknowledge", "listen", "question", "chin_touch", "flying_kiss",
+    "kiss_gesture", "welcome", "celebrate", "sport_demo", "exercise_demo",
+    "dance", "character_acting"
+  ],
+  "body_activity_states": [
+    "conversation", "advising", "teaching", "standing", "sitting",
+    "walking", "move_across_scene", "stand_by_wall", "fitness_demo",
+    "sports_demo", "dance", "acting", "presentation", "celebration"
+  ],
+  "global_languages": [
+    "English", "Hindi", "Mandarin Chinese", "Spanish", "Arabic", "French",
+    "Portuguese", "Bengali", "Russian", "Urdu", "Indonesian", "German",
+    "Japanese", "Korean", "Turkish", "Vietnamese", "Italian", "Marathi",
+    "Telugu", "Tamil", "Gujarati", "Kannada", "Malayalam", "Punjabi"
+  ],
+  "acting_rule": "Preserve Neeraj identity while adapting clothing, environment, emotion, voice delivery and movement to the requested context. Fictional-character requests use character-inspired performance rather than replacing Neeraj's identity.",
+  "romance_rule": "Warm, charming and affectionate non-explicit social/romantic performance only.",
+  "asset_rule": "A production photorealistic full-body rig must be supplied/generated from the approved Neeraj references before the renderer can truthfully claim REAL AVATAR ONLINE. The fallback hologram is only a technical test mode."
 }
