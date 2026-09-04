@@ -9,10 +9,9 @@ export type AvatarCommand =
   | { type: 'performance'; value: any };
 
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
-
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
-const LOCAL_NEERAJ_GLB = '/avatar/avatar.glb';
+const LOCAL_NEERAJ_GLTF = '/profile/scene.gltf';
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, v));
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
@@ -50,12 +49,12 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
     const morphMeshes: THREE.Mesh[] = [];
     const morphAliases: Record<string, string[]> = {
-      mouthOpen: ['mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA'],
-      smile: ['smile', 'mouthSmile', 'mouthSmileLeft', 'mouthSmileRight'],
-      blink: ['blink', 'eyeBlink', 'eyeBlinkLeft', 'eyeBlinkRight', 'eyesClosed'],
+      mouthOpen: ['mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA', 'mouth_open', 'JawOpen'],
+      smile: ['smile', 'mouthSmile', 'mouthSmileLeft', 'mouthSmileRight', 'Smile'],
+      blink: ['blink', 'eyeBlink', 'eyeBlinkLeft', 'eyeBlinkRight', 'eyesClosed', 'Blink'],
       brow: ['brow', 'browInnerUp', 'browDownLeft', 'browDownRight'],
-      pucker: ['mouthPucker', 'viseme_OU', 'viseme_ou'],
-      funnel: ['mouthFunnel', 'viseme_O', 'viseme_oh'],
+      pucker: ['mouthPucker', 'viseme_OU', 'viseme_ou', 'MouthPucker'],
+      funnel: ['mouthFunnel', 'viseme_O', 'viseme_oh', 'MouthFunnel'],
     };
 
     const setMorph = (keyName: string, weight: number) => {
@@ -72,7 +71,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
     const findBone = (names: string[]): THREE.Object3D | null => {
       if (!model) return null;
-      const wanted = names.map((n) => n.toLowerCase());
+      const wanted = names.map((n) => n.toLowerCase().replace(/[^a-z0-9]/g, ''));
       let found: THREE.Object3D | null = null;
       model.traverse((obj: THREE.Object3D) => {
         if (found) return;
@@ -85,53 +84,71 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const setStatus = (s: string) => onStatus?.(s);
     const loader = new GLTFLoader();
 
-    loader.load(LOCAL_NEERAJ_GLB, (gltf) => {
+    setStatus('LOADING • NEERAJ 3D GLTF');
+    loader.load(LOCAL_NEERAJ_GLTF, (gltf) => {
       model = gltf.scene;
       model.position.set(0, 0, 0);
       model.scale.setScalar(1);
       scene.add(model);
+
       model.traverse((obj: THREE.Object3D) => {
         const mesh = obj as THREE.Mesh;
-        if (mesh.isMesh) {
-          const mat = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
-          if (mat) {
-            const materials = Array.isArray(mat) ? mat : [mat];
-            for (const m of materials) { if (m) { m.metalness = Math.min(m.metalness ?? 0, 0.15); m.roughness = Math.max(m.roughness ?? 0.5, 0.32); } }
+        if (!mesh.isMesh) return;
+        const mat = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+        if (mat) {
+          const materials = Array.isArray(mat) ? mat : [mat];
+          for (const m of materials) {
+            if (m) {
+              m.metalness = Math.min(m.metalness ?? 0, 0.15);
+              m.roughness = Math.max(m.roughness ?? 0.5, 0.32);
+            }
           }
-          if (mesh.morphTargetDictionary && mesh.morphTargetInfluences) morphMeshes.push(mesh);
         }
+        if (mesh.morphTargetDictionary && mesh.morphTargetInfluences) morphMeshes.push(mesh);
       });
+
       if (gltf.animations.length) {
         mixer = new THREE.AnimationMixer(model);
         for (const clip of gltf.animations) mixer.clipAction(clip).play();
       }
-      const meshCount = morphMeshes.length;
+
       let morphCount = 0;
       for (const mesh of morphMeshes) morphCount += Object.keys(mesh.morphTargetDictionary ?? {}).length;
-      setStatus(`Neeraj avatar loaded • meshes ${meshCount} • morph targets ${morphCount} • animations ${gltf.animations.length}`);
-    }, undefined, (error) => {
+      setStatus(`NEERAJ AVATAR LOADED • ${morphMeshes.length} FACIAL MESHES • ${morphCount} MORPHS • ${gltf.animations.length} ANIMATIONS`);
+    }, (progress) => {
+      if (progress.total > 0) setStatus(`LOADING • NEERAJ GLTF ${Math.round((progress.loaded / progress.total) * 100)}%`);
+    }, (error) => {
       console.error(error);
-      setStatus('Avatar GLB failed to load');
+      setStatus('GLTF LOAD FAILED • CHECK scene.gltf + .bin + TEXTURES');
     });
 
-    const resize = () => { const w = mount.clientWidth || 1; const h = mount.clientHeight || 1; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); };
+    const resize = () => {
+      const w = mount.clientWidth || 1;
+      const h = mount.clientHeight || 1;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false);
+    };
     resize();
-    const ro = new ResizeObserver(resize); ro.observe(mount);
+    const ro = new ResizeObserver(resize);
+    ro.observe(mount);
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'expression') expression = cmd.value;
       if (cmd.type === 'gesture') gesture = cmd.value;
       if (cmd.type === 'performance') perf = { ...perf, ...(cmd.value ?? {}) };
       if (cmd.type === 'viseme') {
-        const v = cmd.value.toLowerCase(); const w = cmd.weight ?? 1;
-        setMorph('mouthOpen', ['aa', 'a', 'e', 'ih', 'l', 'nn', 'rr'].includes(v) ? w : 0);
+        const v = cmd.value.toLowerCase();
+        const w = cmd.weight ?? 1;
+        setMorph('mouthOpen', ['aa', 'a', 'e', 'ih', 'l', 'nn', 'rr', 'mouthopen'].includes(v) ? w : 0);
         setMorph('pucker', ['ou', 'u'].includes(v) ? w : 0);
         setMorph('funnel', ['o', 'oh'].includes(v) ? w : 0);
       }
       if (cmd.type === 'performance' && typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
-      if (cmd.type === 'gesture' && ['wave', 'bye_wave'].includes(cmd.value)) setStatus('Neeraj avatar • greeting gesture');
+      if (cmd.type === 'gesture' && ['wave', 'bye_wave'].includes(cmd.value)) setStatus('NEERAJ AVATAR • GREETING GESTURE');
     };
-    apiRef.current = { command }; onApi?.(apiRef.current);
+    apiRef.current = { command };
+    onApi?.(apiRef.current);
 
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
@@ -167,7 +184,14 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       renderer.render(scene, camera);
     });
 
-    return () => { renderer.setAnimationLoop(null); ro.disconnect(); apiRef.current = null; mixer?.stopAllAction(); renderer.dispose(); if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement); };
+    return () => {
+      renderer.setAnimationLoop(null);
+      ro.disconnect();
+      apiRef.current = null;
+      mixer?.stopAllAction();
+      renderer.dispose();
+      if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
+    };
   }, [onApi, onStatus]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 420 }} />;
