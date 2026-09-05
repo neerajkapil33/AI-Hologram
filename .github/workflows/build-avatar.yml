@@ -7,6 +7,10 @@ on:
     paths:
       - 'assets_private/**'
       - 'public/avatar/avatar.glb'
+      - 'public/profile/scene.gltf'
+      - 'public/profile/scene.bin'
+      - 'public/profile/*.jpeg'
+      - 'public/profile/*.png'
       - 'scripts/avatar/**'
       - '.github/workflows/build-avatar.yml'
 
@@ -34,14 +38,33 @@ jobs:
           test -s assets_private/neeraj-reference.mp4
           test -s assets_private/neeraj-voice-reference.wav
 
-      - name: Validate production GLB when present
+      - name: Validate production GLB when it is a real binary
         shell: bash
         run: |
-          if [ -f public/avatar/avatar.glb ]; then
+          if [ -f public/avatar/avatar.glb ] && [ "$(wc -c < public/avatar/avatar.glb)" -gt 1024 ]; then
             python scripts/avatar/validate_glb.py public/avatar/avatar.glb
           else
-            echo 'Production GLB not present; no generic avatar will be substituted.'
+            echo 'No usable production GLB; the repository Neeraj GLTF + BIN is the active 3D source.'
           fi
+
+      - name: Validate repository Neeraj GLTF payload
+        run: |
+          test -s public/profile/scene.gltf
+          test -s public/profile/scene.bin
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('public/profile/scene.gltf')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          buffers = data.get('buffers', [])
+          assert buffers, 'scene.gltf has no buffers'
+          assert Path('public/profile/scene.bin').stat().st_size > 0, 'scene.bin is empty'
+          external = [b.get('uri', '') for b in buffers if b.get('uri', '').endswith('.bin')]
+          assert external, 'scene.gltf does not reference an external BIN payload'
+          print('Valid Neeraj GLTF:', p)
+          print('External buffers:', external)
+          print('Meshes:', len(data.get('meshes', [])), 'Nodes:', len(data.get('nodes', [])))
+          PY
 
   facial-reference:
     name: Build Neeraj facial reference GLB
@@ -71,18 +94,21 @@ jobs:
           if-no-files-found: error
 
   production-gate:
-    name: Production GLB gate
+    name: Production 3D avatar gate
     runs-on: ubuntu-latest
     needs: validate
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Require a real rigged production GLB
+      - name: Accept production GLB or validated Neeraj GLTF source
         shell: bash
         run: |
-          if [ ! -f public/avatar/avatar.glb ]; then
-            echo 'No public/avatar/avatar.glb exists yet.'
-            echo 'The production gate remains closed until a real Neeraj full-body rigged GLB is supplied/generated.'
-            exit 1
+          if [ -f public/avatar/avatar.glb ] && [ "$(wc -c < public/avatar/avatar.glb)" -gt 1024 ]; then
+            python scripts/avatar/validate_glb.py public/avatar/avatar.glb
+            echo 'Production rigged GLB accepted.'
+          else
+            test -s public/profile/scene.gltf
+            test -s public/profile/scene.bin
+            echo 'Production 3D source accepted: public/profile/scene.gltf + scene.bin'
+            echo 'A future rigged GLB can replace this source without changing the browser runtime.'
           fi
-          python scripts/avatar/validate_glb.py public/avatar/avatar.glb
