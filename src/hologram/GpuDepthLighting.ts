@@ -1,6 +1,6 @@
 import tgpu, { d } from 'typegpu';
 
-/** Shared TypeGPU light frame copied from gpu-depth-lighting and adapted to the hologram renderer. */
+/** Shared TypeGPU lighting data adapted from gpu-depth-lighting. */
 export const LightFrame = d.struct({
   position: d.vec3f,
   intensity: d.f32,
@@ -31,7 +31,6 @@ export function warmLight(): [number, number, number] {
   return [1.0, 0.88, 0.68];
 }
 
-/** Keeps TypeGPU attached to the same GPUDevice for a future WebGPU renderer. */
 export function initTypeGPULighting(device: GPUDevice) {
   const root = tgpu.initFromDevice({ device });
   if (root.device !== device) throw new Error('TypeGPU must use the existing GPUDevice.');
@@ -47,10 +46,26 @@ export function createTypeGPUDepthTexture(device: GPUDevice, size = 448) {
   });
 }
 
+/** Normalized screen-space orbit used by the circular hologram key light. */
 export function orbitLight(timeMs: number): [number, number] {
   const phase = timeMs * LIGHT_ORBIT_SPEED;
   return [
     0.5 + Math.cos(phase) * LIGHT_ORBIT_RADIUS,
     0.44 + Math.sin(phase * 1.37) * LIGHT_ORBIT_RADIUS * 0.8,
   ];
+}
+
+/** World-space circular-light position around the avatar. */
+export function circularLightPosition(timeMs: number, height = 1.55, radius = 1.15): [number, number, number] {
+  const phase = timeMs * LIGHT_ORBIT_SPEED;
+  return [
+    Math.cos(phase) * radius,
+    height + Math.sin(phase * 1.37) * radius * 0.32,
+    1.15 + Math.sin(phase) * radius * 0.48,
+  ];
+}
+
+export function circularLightIntensity(audioEnergy = 0, speaking = false): number {
+  const energy = Math.max(0, Math.min(1, audioEnergy));
+  return 1.6 + energy * 2.8 + (speaking ? 0.45 : 0);
 }
