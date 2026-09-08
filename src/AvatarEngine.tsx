@@ -12,7 +12,7 @@ type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void 
 
 const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
 const STAGE_CENTER_X = -0.60;
-const PRESENTATION_Y = 1.15;
+const PRESENTATION_Y = 1.60;
 const PRESENTATION_HEIGHT = 2.25;
 const PRESENTATION_WIDTH = 1.42;
 
