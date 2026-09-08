@@ -11,7 +11,7 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
-const STAGE_CENTER_X = -0.22;
+const STAGE_CENTER_X = -0.30;
 
 function placeholderTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
@@ -66,8 +66,6 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.28, depthWrite: false }));
     stage.add(particles);
 
-    // The stage itself remains centered. Only the complete avatar presentation is offset,
-    // keeping the person, depth layer and holographic edge aligned as one unit.
     const presentation = new THREE.Group();
     presentation.position.set(STAGE_CENTER_X, 1.225, 0);
     stage.add(presentation);
