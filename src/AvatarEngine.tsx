@@ -41,6 +41,67 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const rim = new THREE.DirectionalLight(0x55aaff, 2.4); rim.position.set(-2, 2, -2); scene.add(rim);
     const fill = new THREE.PointLight(0x38a8ff, 1.8, 6); fill.position.set(0, 1.4, 1.2); scene.add(fill);
 
+    // Holographic presentation layer: scan rings, volumetric beam and floating
+    // particles sit behind the real-time avatar and animate independently.
+    const hologramGroup = new THREE.Group();
+    scene.add(hologramGroup);
+    const holoRings: THREE.Mesh[] = [];
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0x39bfff,
+      transparent: true,
+      opacity: 0.52,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (const [radius, y, thickness] of [[0.82, 0.03, 0.018], [0.66, 0.34, 0.012], [0.54, 2.36, 0.012]] as const) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, thickness, 8, 96), ringMaterial.clone());
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = y;
+      hologramGroup.add(ring);
+      holoRings.push(ring);
+    }
+
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.78, 0.94, 2.48, 48, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x2aaeff,
+        transparent: true,
+        opacity: 0.055,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    beam.position.y = 1.24;
+    hologramGroup.add(beam);
+
+    const particleCount = 260;
+    const particlePositions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.34 + Math.random() * 0.66;
+      particlePositions[i * 3] = Math.cos(a) * r;
+      particlePositions[i * 3 + 1] = Math.random() * 2.5;
+      particlePositions[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const particleGeometry = new THREE.BufferGeometry();
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    const particles = new THREE.Points(
+      particleGeometry,
+      new THREE.PointsMaterial({
+        color: 0x7bdcff,
+        size: 0.014,
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+      }),
+    );
+    particles.position.y = 0.01;
+    hologramGroup.add(particles);
+
     let model: THREE.Object3D | null = null;
     let runtime: AvatarRuntime | null = null;
     let speaking = false;
@@ -75,6 +136,12 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
           material.roughness = Math.max(material.roughness ?? 0.5, 0.3);
           material.emissive = new THREE.Color(0x0b3158);
           material.emissiveIntensity = 0.22;
+          // Keep the original textures/skin while adding a subtle translucent,
+          // additive cyan treatment so the GLB reads as a holographic projection.
+          material.transparent = true;
+          material.opacity = 0.76;
+          material.blending = THREE.AdditiveBlending;
+          material.depthWrite = false;
         }
       });
     };
@@ -86,16 +153,16 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       scene.add(model);
       runtime = new AvatarRuntime(model, gltf.animations ?? []);
       const report = runtime.report();
-      setStatus(`NEERAJ 3D AVATAR READY • ${source.includes('gltf') ? 'GLTF' : 'GLB'} • ${report.skinnedMeshes} SKINNED • ${report.bones} BONES • ${report.morphTargets} MORPHS • ${gltf.animations?.length ?? 0} ANIMATIONS`);
+      setStatus(`NEERAJ 3D HOLOGRAM READY • ${source.includes('gltf') ? 'GLTF' : 'GLB'} • ${report.skinnedMeshes} SKINNED • ${report.bones} BONES • ${report.morphTargets} MORPHS • ${gltf.animations?.length ?? 0} ANIMATIONS`);
     };
 
     const loadSource = (index: number) => {
       const source = AVATAR_SOURCES[index];
-      setStatus(`LOADING • NEERAJ 3D AVATAR ${index + 1}/${AVATAR_SOURCES.length}`);
+      setStatus(`LOADING • NEERAJ 3D HOLOGRAM ${index + 1}/${AVATAR_SOURCES.length}`);
       loader.load(source, (gltf) => acceptModel(gltf, source), undefined, (error) => {
         console.warn(`Avatar source unavailable: ${source}`, error);
         if (index + 1 < AVATAR_SOURCES.length) loadSource(index + 1);
-        else setStatus('3D AVATAR LOAD FAILED • CHECK GLTF, BIN AND TEXTURES');
+        else setStatus('3D HOLOGRAM LOAD FAILED • CHECK GLTF, BIN AND TEXTURES');
       });
     };
     loadSource(0);
@@ -152,12 +219,25 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         model.rotation.y = THREE.MathUtils.lerp(model.rotation.y, Math.sin(t * 0.38) * 0.035, 0.025);
         model.scale.setScalar(modelBaseScale * (1 + Math.sin(t * 1.7) * 0.0025));
       }
+
+      // Projector motion sells the hologram effect without changing the avatar rig.
+      holoRings.forEach((ring, index) => {
+        ring.rotation.z += dt * (index % 2 === 0 ? 0.42 : -0.3);
+        const pulse = 1 + Math.sin(t * (1.8 + index * 0.35) + index) * 0.035;
+        ring.scale.setScalar(pulse);
+        const material = ring.material as THREE.MeshBasicMaterial;
+        material.opacity = 0.28 + (Math.sin(t * 2.2 + index) + 1) * 0.12;
+      });
+      (beam.material as THREE.MeshBasicMaterial).opacity = 0.035 + (Math.sin(t * 1.7) + 1) * 0.018;
+      particles.rotation.y += dt * 0.08;
+      particles.position.y = 0.01 + Math.sin(t * 0.6) * 0.008;
+
       renderer.render(scene, camera);
     });
 
     const resize = () => { const w = mount.clientWidth || 1, h = mount.clientHeight || 1; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); };
     resize(); const ro = new ResizeObserver(resize); ro.observe(mount);
-    return () => { renderer.setAnimationLoop(null); ro.disconnect(); apiRef.current = null; renderer.dispose(); if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement); };
+    return () => { renderer.setAnimationLoop(null); ro.disconnect(); apiRef.current = null; renderer.dispose(); particleGeometry.dispose(); if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement); };
   }, [onApi, onStatus]);
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 420 }} />;
 }
