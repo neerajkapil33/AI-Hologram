@@ -11,7 +11,7 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
-const STAGE_CENTER_X = -0.12;
+const STAGE_CENTER_X = -0.22;
 
 function placeholderTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
@@ -19,7 +19,7 @@ function placeholderTexture() {
   const g = x.createLinearGradient(0, 0, 0, 768);
   g.addColorStop(0, '#151c25'); g.addColorStop(1, '#05080d');
   x.fillStyle = g; x.fillRect(0, 0, 512, 768);
-  x.strokeStyle = 'rgba(170,225,235,.25)'; x.strokeRect(24, 24, 464, 720);
+  x.strokeStyle = 'rgba(170,225,235,.25)'; x.strokeRect(24, 24, 464, 744);
   x.textAlign = 'center'; x.fillStyle = 'rgba(220,240,245,.78)'; x.font = '600 20px Arial';
   x.fillText('STANDING IMAGE', 256, 372); x.font = '14px Arial'; x.fillStyle = 'rgba(190,215,225,.6)';
   x.fillText('Add /avatar/neeraj-stage.jpg', 256, 402);
@@ -66,8 +66,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.28, depthWrite: false }));
     stage.add(particles);
 
-    // Stage alignment: keep the floor/ring at world X=0 and move the complete
-    // presentation together so the person, depth layer, and edge all sit over it.
+    // The stage itself remains centered. Only the complete avatar presentation is offset,
+    // keeping the person, depth layer and holographic edge aligned as one unit.
     const presentation = new THREE.Group();
     presentation.position.set(STAGE_CENTER_X, 1.225, 0);
     stage.add(presentation);
