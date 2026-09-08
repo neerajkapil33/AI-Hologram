@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AvatarRuntime } from './avatar/rig/AvatarRuntime.js';
-import { orbitLight, physicalFalloff, warmLight } from './hologram/GpuDepthLighting.js';
 
 export type AvatarCommand =
   | { type: 'expression'; value: string }
@@ -38,25 +37,6 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(1.5, 3, 3); scene.add(key);
     const rim = new THREE.DirectionalLight(0x55aaff, 2.4); rim.position.set(-2, 2, -2); scene.add(rim);
     const fill = new THREE.PointLight(0x38a8ff, 1.8, 6); fill.position.set(0, 1.4, 1.2); scene.add(fill);
-
-    // Ported from gpu-depth-lighting: an orbiting circular key light with physical falloff.
-    const circularLight = new THREE.PointLight(0xffd1a3, 2.4, 5.5, 2);
-    circularLight.position.set(0, 1.4, 1.0);
-    scene.add(circularLight);
-    const circularLightRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.065, 0.13, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffd9ad, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    circularLightRing.position.copy(circularLight.position);
-    scene.add(circularLightRing);
-    const circularLightGlow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.12, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffc47f, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    );
-    circularLightGlow.position.copy(circularLight.position);
-    scene.add(circularLightGlow);
-    const [warmR, warmG, warmB] = warmLight();
-    circularLight.color.setRGB(warmR, warmG, warmB);
 
     const hologramGroup = new THREE.Group();
     scene.add(hologramGroup);
@@ -212,67 +192,54 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const audioIntensity = clamp(Number(perf.amplitude ?? perf.audioAmplitude ?? perf.voiceLevel ?? 0));
       const activeEnergy = Math.max(audioIntensity, speaking ? 0.12 : 0);
 
-      // gpu-depth-lighting orbit + inverse-square falloff, applied to the current Three.js renderer.
-      const [lightX, lightY] = orbitLight(performance.now());
-      const targetLight = new THREE.Vector3((lightX - 0.5) * 2.6, 0.18 + lightY * 2.2, 1.05);
-      circularLight.position.lerp(targetLight, 0.08);
-      circularLightRing.position.copy(circularLight.position);
-      circularLightGlow.position.copy(circularLight.position);
-      circularLightRing.lookAt(camera.position);
-      circularLightGlow.lookAt(camera.position);
-      const lightDistance = circularLight.position.distanceTo(new THREE.Vector3(0, 1.25, 0.15));
-      const falloff = physicalFalloff(lightDistance, 0.72);
-      circularLight.intensity = 1.2 + Math.min(3.4, falloff * 0.34) + activeEnergy * 1.4;
-      const lightPulse = 1 + activeEnergy * 0.28 + Math.sin(t * 2.8) * 0.05;
-      circularLightRing.scale.setScalar(lightPulse);
-      circularLightGlow.scale.setScalar(1.0 + activeEnergy * 0.55 + Math.sin(t * 2.1) * 0.08);
-      (circularLightRing.material as THREE.MeshBasicMaterial).opacity = 0.24 + activeEnergy * 0.24;
-      (circularLightGlow.material as THREE.MeshBasicMaterial).opacity = 0.045 + activeEnergy * 0.06;
-
       if (model) {
-        model.position.y = modelBaseY + Math.sin(t * 1.15) * (0.006 + activeEnergy * 0.004) + (speaking ? Math.sin(t * 5.2) * 0.008 : 0);
-        model.rotation.y = THREE.MathUtils.lerp(model.rotation.y, Math.sin(t * 0.38) * (0.035 + activeEnergy * 0.025), 0.025);
-        model.scale.setScalar(modelBaseScale * (1 + Math.sin(t * 1.7) * 0.0025 + activeEnergy * 0.008));
-        model.traverse((obj) => {
-          const mesh = obj as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          const raw = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
-          for (const material of Array.isArray(raw) ? raw : [raw]) {
-            if (!material) continue;
-            material.emissiveIntensity = 0.18 + activeEnergy * 0.72;
-            material.opacity = 0.70 + activeEnergy * 0.18;
-          }
-        });
+        model.position.y = modelBaseY + Math.sin(t * 1.25) * (0.012 + activeEnergy * 0.018);
+        model.rotation.y = Math.sin(t * 0.34) * 0.012;
+        const targetScale = modelBaseScale * (1 + activeEnergy * 0.012);
+        model.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.08);
       }
-
-      holoRings.forEach((ring, index) => {
-        ring.rotation.z += dt * (index % 2 === 0 ? 0.42 : -0.3);
-        const pulse = 1 + Math.sin(t * (1.8 + index * 0.35) + index) * 0.035 + activeEnergy * 0.055;
-        ring.scale.setScalar(pulse);
-        const material = ring.material as THREE.MeshBasicMaterial;
-        material.opacity = 0.24 + (Math.sin(t * 2.2 + index) + 1) * 0.10 + activeEnergy * 0.22;
+      hologramGroup.position.y = Math.sin(t * 1.1) * 0.012;
+      particles.rotation.y += dt * (0.08 + activeEnergy * 0.16);
+      beam.scale.x = 1 + activeEnergy * 0.025;
+      beam.scale.z = 1 + activeEnergy * 0.025;
+      holoRings.forEach((ring, i) => {
+        ring.rotation.z += dt * (0.08 + i * 0.025);
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0.42 + activeEnergy * 0.18;
       });
-      (beam.material as THREE.MeshBasicMaterial).opacity = 0.035 + (Math.sin(t * 1.7) + 1) * 0.018 + activeEnergy * 0.045;
-
-      scanLines.forEach((line, index) => {
-        const cycle = (t * (0.42 + activeEnergy * 0.7) + index / scanLines.length) % 1;
-        line.position.y = 0.12 + cycle * 2.34;
-        const material = line.material as THREE.MeshBasicMaterial;
-        material.opacity = 0.02 + (Math.sin(t * 3.5 + index * 0.7) + 1) * 0.025 + activeEnergy * 0.09;
-        line.scale.x = 0.86 + Math.sin(t * 1.8 + index) * 0.08 + activeEnergy * 0.10;
+      scanLines.forEach((line, i) => {
+        const wave = (t * 0.55 + i / scanLines.length) % 1;
+        line.position.y = 0.12 + wave * 2.34;
+        (line.material as THREE.MeshBasicMaterial).opacity = 0.055 + activeEnergy * 0.045;
       });
 
-      particles.rotation.y += dt * (0.08 + activeEnergy * 0.18);
-      particles.position.y = 0.01 + Math.sin(t * 0.6) * 0.008;
-      const particleMaterial = particles.material as THREE.PointsMaterial;
-      particleMaterial.opacity = 0.56 + activeEnergy * 0.38;
-      particleMaterial.size = 0.012 + activeEnergy * 0.012;
+      const width = mount.clientWidth || 640;
+      const height = mount.clientHeight || 640;
+      if (renderer.domElement.width !== Math.floor(width * renderer.getPixelRatio()) || renderer.domElement.height !== Math.floor(height * renderer.getPixelRatio())) {
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
       renderer.render(scene, camera);
     });
 
-    const resize = () => { const w = mount.clientWidth || 1, h = mount.clientHeight || 1; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); };
-    resize(); const ro = new ResizeObserver(resize); ro.observe(mount);
-    return () => { renderer.setAnimationLoop(null); ro.disconnect(); apiRef.current = null; renderer.dispose(); particleGeometry.dispose(); if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement); };
+    const onResize = () => {
+      const width = mount.clientWidth || 640;
+      const height = mount.clientHeight || 640;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      renderer.setAnimationLoop(null);
+      renderer.dispose();
+      mount.removeChild(renderer.domElement);
+      apiRef.current = null;
+    };
   }, [onApi, onStatus]);
-  return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 420 }} />;
+
+  return <div ref={mountRef} className="live-avatar" aria-label="Neeraj 3D hologram" />;
 }
