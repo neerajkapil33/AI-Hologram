@@ -11,6 +11,7 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
+const STAGE_CENTER_X = -0.12;
 
 function placeholderTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
@@ -65,10 +66,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.28, depthWrite: false }));
     stage.add(particles);
 
-    // Critical alignment fix: the 2.45-unit standing figure is centered at ~1.225,
-    // so its feet meet the stage floor instead of placing most of the image below it.
+    // Stage alignment: keep the floor/ring at world X=0 and move the complete
+    // presentation together so the person, depth layer, and edge all sit over it.
     const presentation = new THREE.Group();
-    presentation.position.y = 1.225;
+    presentation.position.set(STAGE_CENTER_X, 1.225, 0);
     stage.add(presentation);
 
     const placeholder = placeholderTexture();
@@ -113,11 +114,9 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const dt = Math.min(clock.getDelta(), 0.05), t = performance.now() / 1000;
       if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.20;
       presentation.rotation.y = THREE.MathUtils.lerp(presentation.rotation.y, targetRotation, 0.035);
+      presentation.position.x = STAGE_CENTER_X + Math.sin(t * 0.72) * 0.004;
       presentation.position.y = 1.225 + Math.sin(t * 1.1) * (0.006 + intensity * 0.008);
       presentation.scale.setScalar(1 + Math.sin(t * 1.5) * 0.002 + (speaking ? 0.003 : 0));
-      image.position.x = Math.sin(t * 0.72) * 0.006;
-      depth.position.x = image.position.x * 0.55;
-      edge.position.x = image.position.x * 0.25;
       floorRing.rotation.z += dt * 0.08; stageRing.rotation.z -= dt * 0.045; particles.rotation.y += dt * 0.025;
       (floorRing.material as THREE.MeshBasicMaterial).opacity = 0.38 + intensity * 0.10;
       (stageRing.material as THREE.MeshBasicMaterial).opacity = 0.28 + intensity * 0.08;
