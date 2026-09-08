@@ -127,7 +127,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       scene.add(candidate);
       runtime = new AvatarRuntime(candidate, gltf.animations ?? []);
       const report = runtime.report();
-      setStatus(`NEERAJ 3D HOLOGRAM READY • ${source.includes('gltf') ? 'GLTF' : 'GLB'} • ${report.skinnedMeshes} SKINNED • ${report.bones} BONES • ${report.morphTargets} MORPHS • ${gltf.animations?.length ?? 0} ANIMATIONS`);
+      const animationText = report.animations.length ? ` • ANIMS: ${report.animations.join(', ')}` : '';
+      setStatus(`NEERAJ 3D HOLOGRAM READY • ${source.includes('gltf') ? 'GLTF' : 'GLB'} • ${report.skinnedMeshes} SKINNED • ${report.bones} BONES • ${report.morphTargets} MORPHS • ${report.animations.length} ANIMATIONS${animationText}`);
     };
 
     const loadSource = (index: number) => {
@@ -141,9 +142,23 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
     loadSource(0);
 
+    const playGestureAnimation = (value: string) => {
+      if (!runtime) return;
+      const v = norm(value);
+      if (['idle', 'neutral', 'reset', 'stand'].includes(v)) runtime.playFirstAvailable(['idle', 'standing', 'stand', 'tpose']);
+      else if (['walk', 'walking'].includes(v)) runtime.playFirstAvailable(['walk', 'walking', 'idle']);
+      else if (['run', 'running'].includes(v)) runtime.playFirstAvailable(['run', 'running', 'walk', 'idle']);
+      else if (['wave', 'bye', 'byewave'].includes(v)) runtime.playFirstAvailable(['wave', 'bye_wave', 'bye', 'idle']);
+      else if (['nod', 'acknowledge'].includes(v)) runtime.playFirstAvailable(['nod', 'acknowledge', 'idle']);
+      else runtime.playFirstAvailable([value, 'idle']);
+    };
+
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'expression') expression = cmd.value;
-      if (cmd.type === 'gesture') gesture = cmd.value;
+      if (cmd.type === 'gesture') {
+        gesture = cmd.value;
+        playGestureAnimation(cmd.value);
+      }
       if (cmd.type === 'performance') {
         perf = { ...perf, ...(cmd.value ?? {}) };
         if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
