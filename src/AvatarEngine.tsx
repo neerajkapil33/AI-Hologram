@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AvatarRuntime } from './avatar/rig/AvatarRuntime.js';
+import { orbitLight, physicalFalloff, warmLight } from './hologram/GpuDepthLighting.js';
 
 export type AvatarCommand =
   | { type: 'expression'; value: string }
@@ -37,6 +38,25 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(1.5, 3, 3); scene.add(key);
     const rim = new THREE.DirectionalLight(0x55aaff, 2.4); rim.position.set(-2, 2, -2); scene.add(rim);
     const fill = new THREE.PointLight(0x38a8ff, 1.8, 6); fill.position.set(0, 1.4, 1.2); scene.add(fill);
+
+    // Ported from gpu-depth-lighting: an orbiting circular key light with physical falloff.
+    const circularLight = new THREE.PointLight(0xffd1a3, 2.4, 5.5, 2);
+    circularLight.position.set(0, 1.4, 1.0);
+    scene.add(circularLight);
+    const circularLightRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.065, 0.13, 64),
+      new THREE.MeshBasicMaterial({ color: 0xffd9ad, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    circularLightRing.position.copy(circularLight.position);
+    scene.add(circularLightRing);
+    const circularLightGlow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.12, 64),
+      new THREE.MeshBasicMaterial({ color: 0xffc47f, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    circularLightGlow.position.copy(circularLight.position);
+    scene.add(circularLightGlow);
+    const [warmR, warmG, warmB] = warmLight();
+    circularLight.color.setRGB(warmR, warmG, warmB);
 
     const hologramGroup = new THREE.Group();
     scene.add(hologramGroup);
@@ -191,6 +211,24 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
       const audioIntensity = clamp(Number(perf.amplitude ?? perf.audioAmplitude ?? perf.voiceLevel ?? 0));
       const activeEnergy = Math.max(audioIntensity, speaking ? 0.12 : 0);
+
+      // gpu-depth-lighting orbit + inverse-square falloff, applied to the current Three.js renderer.
+      const [lightX, lightY] = orbitLight(performance.now());
+      const targetLight = new THREE.Vector3((lightX - 0.5) * 2.6, 0.18 + lightY * 2.2, 1.05);
+      circularLight.position.lerp(targetLight, 0.08);
+      circularLightRing.position.copy(circularLight.position);
+      circularLightGlow.position.copy(circularLight.position);
+      circularLightRing.lookAt(camera.position);
+      circularLightGlow.lookAt(camera.position);
+      const lightDistance = circularLight.position.distanceTo(new THREE.Vector3(0, 1.25, 0.15));
+      const falloff = physicalFalloff(lightDistance, 0.72);
+      circularLight.intensity = 1.2 + Math.min(3.4, falloff * 0.34) + activeEnergy * 1.4;
+      const lightPulse = 1 + activeEnergy * 0.28 + Math.sin(t * 2.8) * 0.05;
+      circularLightRing.scale.setScalar(lightPulse);
+      circularLightGlow.scale.setScalar(1.0 + activeEnergy * 0.55 + Math.sin(t * 2.1) * 0.08);
+      (circularLightRing.material as THREE.MeshBasicMaterial).opacity = 0.24 + activeEnergy * 0.24;
+      (circularLightGlow.material as THREE.MeshBasicMaterial).opacity = 0.045 + activeEnergy * 0.06;
+
       if (model) {
         model.position.y = modelBaseY + Math.sin(t * 1.15) * (0.006 + activeEnergy * 0.004) + (speaking ? Math.sin(t * 5.2) * 0.008 : 0);
         model.rotation.y = THREE.MathUtils.lerp(model.rotation.y, Math.sin(t * 0.38) * (0.035 + activeEnergy * 0.025), 0.025);
