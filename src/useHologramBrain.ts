@@ -84,10 +84,13 @@ export function useHologramBrain(opts: {
     source.start();
 
     let raf = 0;
+    let smoothed = 0;
     const tick = () => {
       analyser.getByteFrequencyData(freqData);
       const avg = freqData.reduce((sum, v) => sum + v, 0) / freqData.length;
-      onAmplitude(Math.min(1, avg / 90));
+      const raw = Math.min(1, avg / 90);
+      smoothed += (raw - smoothed) * 0.22;
+      onAmplitude(smoothed);
       raf = requestAnimationFrame(tick);
     };
     tick();
