@@ -11,7 +11,10 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
-const STAGE_CENTER_X = -0.40;
+const STAGE_CENTER_X = -0.60;
+const PRESENTATION_Y = 1.15;
+const PRESENTATION_HEIGHT = 2.25;
+const PRESENTATION_WIDTH = 1.42;
 
 function placeholderTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
@@ -33,9 +36,9 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const mount = mountRef.current; if (!mount) return;
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x03070c, 0.06);
-    const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.01, 100);
     camera.position.set(0, 1.35, 4.8);
-    camera.lookAt(0, 1.25, 0);
+    camera.lookAt(0, 1.15, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -67,7 +70,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     stage.add(particles);
 
     const presentation = new THREE.Group();
-    presentation.position.set(STAGE_CENTER_X, 1.225, 0);
+    presentation.position.set(STAGE_CENTER_X, PRESENTATION_Y, 0);
     stage.add(presentation);
 
     const placeholder = placeholderTexture();
@@ -75,15 +78,15 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const depthMat = new THREE.MeshBasicMaterial({ map: placeholder, transparent: true, opacity: 0.09, color: 0xa9dfe7, depthWrite: false, side: THREE.DoubleSide });
     const edgeMat = new THREE.MeshBasicMaterial({ color: 0xa9e6ed, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide });
 
-    const image = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.45), imageMat); image.position.z = 0.02; presentation.add(image);
-    const depth = new THREE.Mesh(new THREE.PlaneGeometry(1.58, 2.48), depthMat); depth.position.z = -0.045; presentation.add(depth);
-    const edge = new THREE.Mesh(new THREE.PlaneGeometry(1.60, 2.50), edgeMat); edge.position.z = -0.06; presentation.add(edge);
+    const image = new THREE.Mesh(new THREE.PlaneGeometry(PRESENTATION_WIDTH, PRESENTATION_HEIGHT), imageMat); image.position.z = 0.02; presentation.add(image);
+    const depth = new THREE.Mesh(new THREE.PlaneGeometry(PRESENTATION_WIDTH + 0.03, PRESENTATION_HEIGHT + 0.03), depthMat); depth.position.z = -0.045; presentation.add(depth);
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(PRESENTATION_WIDTH + 0.05, PRESENTATION_HEIGHT + 0.05), edgeMat); edge.position.z = -0.06; presentation.add(edge);
 
     new THREE.TextureLoader().load(STANDING_IMAGE, texture => {
       texture.colorSpace = THREE.SRGBColorSpace;
       imageMat.map = texture; imageMat.needsUpdate = true;
       depthMat.map = texture; depthMat.needsUpdate = true;
-      onStatus?.('STEP 1 • STANDING HUMAN HOLOGRAM READY');
+      onStatus?.('STEP 1 • FULL-LENGTH STANDING HUMAN HOLOGRAM READY');
     }, undefined, () => onStatus?.('STEP 1 • IMAGE LOAD ERROR'));
 
     let autoRotate = true, targetRotation = 0, speaking = false, intensity = 0.25;
@@ -113,7 +116,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.20;
       presentation.rotation.y = THREE.MathUtils.lerp(presentation.rotation.y, targetRotation, 0.035);
       presentation.position.x = STAGE_CENTER_X + Math.sin(t * 0.72) * 0.004;
-      presentation.position.y = 1.225 + Math.sin(t * 1.1) * (0.006 + intensity * 0.008);
+      presentation.position.y = PRESENTATION_Y + Math.sin(t * 1.1) * (0.006 + intensity * 0.008);
       presentation.scale.setScalar(1 + Math.sin(t * 1.5) * 0.002 + (speaking ? 0.003 : 0));
       floorRing.rotation.z += dt * 0.08; stageRing.rotation.z -= dt * 0.045; particles.rotation.y += dt * 0.025;
       (floorRing.material as THREE.MeshBasicMaterial).opacity = 0.38 + intensity * 0.10;
