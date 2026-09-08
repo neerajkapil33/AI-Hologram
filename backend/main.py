@@ -21,8 +21,11 @@ async def health():
     return {
         'ok': True,
         'avatar_engine': os.getenv('AVATAR_ENGINE','simple'),
-        'tavus': tavus.configured,
+        'avatar_lip_sync_ready': avatar.available,
+        'avatar_reference_video': str(avatar.source_video),
         'tts': bool(os.getenv('TTS_URL')),
+        'tts_voice_reference': tts.voice_reference,
+        'tavus': tavus.configured,
         'persona': 'neeraj-ai-career-companion',
         'performance_director': True,
         'capabilities': ['conversation', 'multilingual', 'voice', 'lip_sync', 'facial_expression', 'gesture', 'full_body_performance'],
@@ -65,18 +68,33 @@ async def ws(websocket: WebSocket):
             answer=await asyncio.to_thread(brain.reply, history, language)
             history.append({'role':'assistant','content':answer})
 
-            # One shared performance contract drives the face, gesture and body
-            # layers. This avoids random gestures and keeps animation semantic.
             performance_data = await asyncio.to_thread(performance.direct, answer)
             await websocket.send_json({'type':'message','role':'assistant','content':answer})
             await websocket.send_json({'type':'performance','performance':performance_data.json()})
 
             audio_path=await asyncio.to_thread(tts.synthesize, answer, language)
             if audio_path:
-                await websocket.send_json({'type':'audio','audio':base64.b64encode(Path(audio_path).read_bytes()).decode(),'mime':'audio/wav'})
+                audio_file = Path(audio_path)
+                audio_mime = 'audio/mpeg' if audio_file.suffix.lower() == '.mp3' else 'audio/wav'
+                await websocket.send_json({
+                    'type':'audio',
+                    'audio':base64.b64encode(audio_file.read_bytes()).decode(),
+                    'mime':audio_mime,
+                })
+                # MuseTalk consumes the exact generated speech waveform and the
+                # supplied Neeraj reference video, producing a lip-synced video.
                 video_path=await asyncio.to_thread(avatar.generate, audio_path)
                 if video_path:
-                    await websocket.send_json({'type':'avatar_video','video':base64.b64encode(Path(video_path).read_bytes()).decode(),'mime':'video/mp4'})
+                    video_file = Path(video_path)
+                    await websocket.send_json({
+                        'type':'avatar_video',
+                        'video':base64.b64encode(video_file.read_bytes()).decode(),
+                        'mime':'video/mp4',
+                    })
+                try:
+                    audio_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
             await websocket.send_json({'type':'done'})
     except WebSocketDisconnect:
         return
