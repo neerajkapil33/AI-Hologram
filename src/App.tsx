@@ -35,8 +35,8 @@ function App() {
     onAssistantText: (text) => setResponse(text),
     onPerformance: (p) => { setPerformance(p); command({ type: 'performance', value: p }); setStatus(`NEERAJ ${p.emotion.toUpperCase()} • ${p.gesture.toUpperCase()} • ${p.body.toUpperCase()}`); },
     onSpeechStart: () => { setSpeaking(true); setStatus('NEERAJ SPEAKING • LIVE AI VOICE + EXPRESSION'); command({ type: 'expression', value: 'speaking' }); },
-    onSpeechEnd: () => { setSpeaking(false); setStatus('ONLINE • NEERAJ IS LISTENING'); command({ type: 'expression', value: 'neutral' }); command({ type: 'gesture', value: 'idle' }); },
-    onAmplitude: (level) => command({ type: 'viseme', value: 'mouthOpen', weight: level }),
+    onSpeechEnd: () => { setSpeaking(false); setStatus('ONLINE • NEERAJ IS LISTENING'); command({ type: 'expression', value: 'neutral' }); command({ type: 'gesture', value: 'idle' }); command({ type: 'performance', value: { amplitude: 0, speaking: false } }); },
+    onAmplitude: (level) => { command({ type: 'performance', value: { amplitude: level, voiceLevel: level, intensity: Math.max(0.15, level), speaking: level > 0.02 } }); command({ type: 'viseme', value: 'mouthOpen', weight: level }); },
     onAvatarVideo: (src) => setAvatarVideo(src),
   });
   const processQuestion = (text: string) => { const clean = text.trim(); if (!clean) return; setMode('companion'); if (brainStatus !== 'ready') { setStatus('BRAIN OFFLINE • START backend/main.py'); return; } setTranscript(clean); setStatus('NEERAJ THINKING • FORMING YOUR RESPONSE'); command({ type: 'expression', value: 'thinking' }); command({ type: 'gesture', value: 'nod' }); sendText(clean, language); };
