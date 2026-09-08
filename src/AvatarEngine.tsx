@@ -1,7 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { AvatarRuntime } from './avatar/rig/AvatarRuntime.js';
 
 export type AvatarCommand =
   | { type: 'expression'; value: string }
@@ -12,249 +10,120 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
-const AVATAR_SOURCES = ['/avatar/avatar.glb', '/profile/scene.gltf'];
-const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, v));
-const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+// STEP 1: human standing image first. GLB comes only after this stage is right.
+const STANDING_IMAGE = '/avatar/neeraj-stage.png';
+
+function placeholderTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 768;
+  const x = c.getContext('2d')!;
+  const g = x.createLinearGradient(0, 0, 0, 768);
+  g.addColorStop(0, '#151c25'); g.addColorStop(1, '#05080d');
+  x.fillStyle = g; x.fillRect(0, 0, 512, 768);
+  x.strokeStyle = 'rgba(170,225,235,.25)'; x.strokeRect(24, 24, 464, 720);
+  x.textAlign = 'center'; x.fillStyle = 'rgba(220,240,245,.78)'; x.font = '600 20px Arial';
+  x.fillText('STANDING IMAGE', 256, 372); x.font = '14px Arial'; x.fillStyle = 'rgba(190,215,225,.6)';
+  x.fillText('Add /avatar/neeraj-stage.png', 256, 402);
+  return new THREE.CanvasTexture(c);
+}
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<AvatarApi | null>(null);
 
   useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
+    const mount = mountRef.current; if (!mount) return;
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
-    camera.position.set(0, 1.55, 3.1);
-    camera.lookAt(0, 1.35, 0);
+    scene.fog = new THREE.FogExp2(0x03070c, 0.06);
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+    camera.position.set(0, 1.35, 4.8); camera.lookAt(0, 1.25, 0);
+
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setClearColor(0x000000, 0);
-    mount.appendChild(renderer.domElement);
+    renderer.setClearColor(0x02050a, 0); mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x101522, 2.4));
-    const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(1.5, 3, 3); scene.add(key);
-    const rim = new THREE.DirectionalLight(0x55aaff, 2.4); rim.position.set(-2, 2, -2); scene.add(rim);
-    const fill = new THREE.PointLight(0x38a8ff, 1.8, 6); fill.position.set(0, 1.4, 1.2); scene.add(fill);
+    // Neutral studio light. No cyan flood, no vertical hologram beam.
+    scene.add(new THREE.HemisphereLight(0xc8d5df, 0x080b10, 1.25));
+    const key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(1.8, 3.2, 3.5); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x9bb7c7, 0.45); rim.position.set(-2, 2.5, -2); scene.add(rim);
 
-    const hologramGroup = new THREE.Group();
-    scene.add(hologramGroup);
-    const holoRings: THREE.Mesh[] = [];
-    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x39bfff, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-    for (const [radius, y, thickness] of [[0.82, 0.03, 0.018], [0.66, 0.34, 0.012], [0.54, 2.36, 0.012]] as const) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, thickness, 8, 96), ringMaterial.clone());
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = y;
-      hologramGroup.add(ring);
-      holoRings.push(ring);
+    const stage = new THREE.Group(); scene.add(stage);
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(1.12, 96),
+      new THREE.MeshStandardMaterial({ color: 0x071019, metalness: 0.35, roughness: 0.5 })
+    );
+    floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; stage.add(floor);
+
+    const floorRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.78, 0.795, 128),
+      new THREE.MeshBasicMaterial({ color: 0x8bd6e4, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+    );
+    floorRing.rotation.x = -Math.PI / 2; floorRing.position.y = 0.025; stage.add(floorRing);
+
+    const stageRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.82, 0.008, 8, 128),
+      new THREE.MeshBasicMaterial({ color: 0xa5e0e8, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
+    );
+    stageRing.rotation.x = Math.PI / 2; stageRing.position.y = 0.04; stage.add(stageRing);
+
+    const particleCount = 80, positions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i++) {
+      const a = Math.random() * Math.PI * 2, r = 0.8 + Math.random() * 0.55;
+      positions[i * 3] = Math.cos(a) * r; positions[i * 3 + 1] = 0.08 + Math.random() * 2.45; positions[i * 3 + 2] = Math.sin(a) * r;
     }
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.28, depthWrite: false }));
+    stage.add(particles);
 
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.94, 2.48, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0x2aaeff, transparent: true, opacity: 0.055, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    beam.position.y = 1.24;
-    hologramGroup.add(beam);
+    const presentation = new THREE.Group(); presentation.position.y = 0.06; stage.add(presentation);
+    const placeholder = placeholderTexture();
+    const imageMat = new THREE.MeshBasicMaterial({ map: placeholder, transparent: true, opacity: 0.98, depthWrite: false, side: THREE.DoubleSide });
+    const depthMat = new THREE.MeshBasicMaterial({ map: placeholder, transparent: true, opacity: 0.09, color: 0xa9dfe7, depthWrite: false, side: THREE.DoubleSide });
+    const edgeMat = new THREE.MeshBasicMaterial({ color: 0xa9e6ed, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide });
 
-    const scanLines: THREE.Mesh[] = [];
-    const scanMaterial = new THREE.MeshBasicMaterial({ color: 0x5fd7ff, transparent: true, opacity: 0.075, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-    for (let i = 0; i < 46; i += 1) {
-      const line = new THREE.Mesh(new THREE.PlaneGeometry(1.72, 0.006), scanMaterial.clone());
-      line.position.set(0, 0.12 + (i / 45) * 2.34, 0.02);
-      hologramGroup.add(line);
-      scanLines.push(line);
-    }
+    const image = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.45), imageMat); image.position.z = 0.02; presentation.add(image);
+    const depth = new THREE.Mesh(new THREE.PlaneGeometry(1.58, 2.48), depthMat); depth.position.z = -0.045; presentation.add(depth);
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(1.60, 2.50), edgeMat); edge.position.z = -0.06; presentation.add(edge);
 
-    const particleCount = 260;
-    const particlePositions = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 0.34 + Math.random() * 0.66;
-      particlePositions[i * 3] = Math.cos(a) * r;
-      particlePositions[i * 3 + 1] = Math.random() * 2.5;
-      particlePositions[i * 3 + 2] = Math.sin(a) * r;
-    }
-    const particleGeometry = new THREE.BufferGeometry();
-    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
-    const particles = new THREE.Points(particleGeometry, new THREE.PointsMaterial({ color: 0x7bdcff, size: 0.014, transparent: true, opacity: 0.72, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
-    particles.position.y = 0.01;
-    hologramGroup.add(particles);
+    new THREE.TextureLoader().load(STANDING_IMAGE, texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      imageMat.map = texture; imageMat.needsUpdate = true;
+      depthMat.map = texture; depthMat.needsUpdate = true;
+      onStatus?.('STEP 1 • STANDING HUMAN HOLOGRAM READY');
+    }, undefined, () => onStatus?.('STEP 1 • ADD /avatar/neeraj-stage.png TO ACTIVATE THE STANDING IMAGE'));
 
-    let model: THREE.Object3D | null = null;
-    let runtime: AvatarRuntime | null = null;
-    let speaking = false;
-    let expression = 'neutral';
-    let gesture = 'idle';
-    let perf: any = { intensity: 0.35, gaze: 'camera', head: '', body: '' };
-    let blinkTimer = 0, blinkUntil = 0;
-    let modelBaseY = 0, modelBaseScale = 1;
+    let autoRotate = true, targetRotation = 0, speaking = false, intensity = 0.25;
     const clock = new THREE.Clock();
-    const setStatus = (s: string) => onStatus?.(s);
-    const loader = new GLTFLoader();
-
-    const prepareModel = (root: THREE.Object3D) => {
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const height = Math.max(size.y, 0.01);
-      modelBaseScale = 2.45 / height;
-      root.scale.setScalar(modelBaseScale);
-      root.position.sub(center.multiplyScalar(modelBaseScale));
-      const framed = new THREE.Box3().setFromObject(root);
-      modelBaseY = -framed.min.y + 0.02;
-      root.position.y += modelBaseY;
-      root.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.castShadow = true; mesh.receiveShadow = true;
-        const raw = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
-        for (const material of Array.isArray(raw) ? raw : [raw]) {
-          if (!material) continue;
-          material.metalness = Math.min(material.metalness ?? 0, 0.2);
-          material.roughness = Math.max(material.roughness ?? 0.5, 0.3);
-          material.emissive = new THREE.Color(0x0b3158);
-          material.emissiveIntensity = 0.22;
-          material.transparent = true;
-          material.opacity = 0.76;
-          material.blending = THREE.AdditiveBlending;
-          material.depthWrite = false;
-        }
-      });
-    };
-
-    const acceptModel = (gltf: any, source: string) => {
-      const candidate = gltf.scene as THREE.Object3D;
-      prepareModel(candidate);
-      model = candidate;
-      scene.add(candidate);
-      runtime = new AvatarRuntime(candidate, gltf.animations ?? []);
-      const report = runtime.report();
-      const animationText = report.animations.length ? ` • ANIMS: ${report.animations.join(', ')}` : '';
-      setStatus(`NEERAJ 3D HOLOGRAM READY • ${source.includes('gltf') ? 'GLTF' : 'GLB'} • ${report.skinnedMeshes} SKINNED • ${report.bones} BONES • ${report.morphTargets} MORPHS • ${report.animations.length} ANIMATIONS${animationText}`);
-    };
-
-    const loadSource = (index: number) => {
-      const source = AVATAR_SOURCES[index];
-      setStatus(`LOADING • NEERAJ 3D HOLOGRAM ${index + 1}/${AVATAR_SOURCES.length}`);
-      loader.load(source, (gltf) => acceptModel(gltf, source), undefined, (error) => {
-        console.warn(`Avatar source unavailable: ${source}`, error);
-        if (index + 1 < AVATAR_SOURCES.length) loadSource(index + 1);
-        else setStatus('3D HOLOGRAM LOAD FAILED • CHECK GLTF, BIN AND TEXTURES');
-      });
-    };
-    loadSource(0);
-
-    const playGestureAnimation = (value: string) => {
-      if (!runtime) return;
-      const v = norm(value);
-      if (['idle', 'neutral', 'reset', 'stand'].includes(v)) runtime.playFirstAvailable(['idle', 'standing', 'stand', 'tpose']);
-      else if (['walk', 'walking'].includes(v)) runtime.playFirstAvailable(['walk', 'walking', 'idle']);
-      else if (['run', 'running'].includes(v)) runtime.playFirstAvailable(['run', 'running', 'walk', 'idle']);
-      else if (['wave', 'bye', 'byewave'].includes(v)) runtime.playFirstAvailable(['wave', 'bye_wave', 'bye', 'idle']);
-      else if (['nod', 'acknowledge'].includes(v)) runtime.playFirstAvailable(['nod', 'acknowledge', 'idle']);
-      else runtime.playFirstAvailable([value, 'idle']);
-    };
-
     const command = (cmd: AvatarCommand) => {
-      if (cmd.type === 'expression') expression = cmd.value;
+      if (cmd.type === 'performance') { intensity = Math.max(0, Math.min(1, Number(cmd.value?.intensity ?? intensity))); if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking; }
       if (cmd.type === 'gesture') {
-        gesture = cmd.value;
-        playGestureAnimation(cmd.value);
+        const v = cmd.value.toLowerCase();
+        if (v.includes('left')) targetRotation = -0.20;
+        else if (v.includes('right')) targetRotation = 0.20;
+        else if (v.includes('front') || v.includes('camera') || v.includes('idle')) targetRotation = 0;
       }
-      if (cmd.type === 'performance') {
-        perf = { ...perf, ...(cmd.value ?? {}) };
-        if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
-      }
-      if (cmd.type === 'viseme' && runtime) {
-        const v = norm(cmd.value), w = cmd.weight ?? 1;
-        const aliases = [`viseme_${v}`, v];
-        if (['aa', 'ah'].includes(v)) aliases.push('jawOpen', 'mouthOpen');
-        if (['ou', 'u', 'o'].includes(v)) aliases.push('mouthPucker', 'mouthFunnel');
-        if (['pp', 'mm', 'bb'].includes(v)) aliases.push('mouthClose');
-        runtime.setFirstAvailable(aliases, w);
-      }
+      if (cmd.type === 'expression' && cmd.value.toLowerCase() === 'auto-rotate') autoRotate = !autoRotate;
     };
-    apiRef.current = { command }; onApi?.(apiRef.current);
+    onApi?.({ command });
+
+    const resize = () => { const w = mount.clientWidth || 640, h = mount.clientHeight || 640; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+    resize();
 
     renderer.setAnimationLoop(() => {
-      const dt = Math.min(clock.getDelta(), 0.05);
-      runtime?.update(dt);
-      const t = performance.now() / 1000;
-      blinkTimer += dt;
-      if (blinkTimer > 3.2 + Math.random() * 2.7) { blinkTimer = 0; blinkUntil = t + 0.14; }
-      const blink = blinkUntil > t ? Math.sin(((blinkUntil - t) / 0.14) * Math.PI) : 0;
-      if (runtime) {
-        runtime.setFirstAvailable(['eyeBlinkLeft', 'eyeBlink', 'blink'], blink);
-        runtime.setFirstAvailable(['eyeBlinkRight', 'eyeBlink', 'blink'], blink);
-        if (!speaking) runtime.setFirstAvailable(['jawOpen', 'mouthOpen', 'viseme_sil'], 0);
-        const happy = ['happy', 'excited', 'celebrating'].includes(expression);
-        runtime.setFirstAvailable(['mouthSmileLeft', 'mouthSmile', 'smile'], happy ? 0.42 : 0);
-        runtime.setFirstAvailable(['mouthSmileRight', 'mouthSmile', 'smile'], happy ? 0.42 : 0);
-        const head = runtime.bone(['head']), neck = runtime.bone(['neck']), spine = runtime.bone(['spine', 'chest', 'upperchest']);
-        const leftArm = runtime.bone(['leftupperarm', 'left_arm', 'leftarm']), rightArm = runtime.bone(['rightupperarm', 'right_arm', 'rightarm']);
-        const intensity = clamp(Number(perf.intensity ?? 0.35));
-        if (head) {
-          const look = perf.gaze === 'camera' || perf.gaze === 'direct' ? Math.sin(t * 0.55) * 0.035 : Math.sin(t * 0.32) * 0.015;
-          head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, look, 0.035);
-          head.rotation.z = THREE.MathUtils.lerp(head.rotation.z, perf.head?.includes?.('tilt') ? 0.025 : 0, 0.04);
-          if (gesture === 'nod' || gesture === 'acknowledge') head.rotation.x = Math.sin(t * 3.1) * 0.035;
-        }
-        if (neck) neck.rotation.y = THREE.MathUtils.lerp(neck.rotation.y, Math.sin(t * 0.4) * 0.012, 0.02);
-        if (spine) spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, perf.body?.includes?.('lean') ? -0.035 * intensity : 0, 0.025);
-        const arm = 0.18 + intensity * 0.32;
-        if (rightArm) rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, ['open_hand','explain','enumerate','emphasis','wave','bye_wave'].includes(gesture) ? -arm : 0, 0.06);
-        if (leftArm) leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, ['namaste','clap','contrast'].includes(gesture) ? arm * 0.9 : 0, 0.06);
-      }
-
-      const audioIntensity = clamp(Number(perf.amplitude ?? perf.audioAmplitude ?? perf.voiceLevel ?? 0));
-      const activeEnergy = Math.max(audioIntensity, speaking ? 0.12 : 0);
-
-      if (model) {
-        model.position.y = modelBaseY + Math.sin(t * 1.25) * (0.012 + activeEnergy * 0.018);
-        model.rotation.y = Math.sin(t * 0.34) * 0.012;
-        const targetScale = modelBaseScale * (1 + activeEnergy * 0.012);
-        model.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.08);
-      }
-      hologramGroup.position.y = Math.sin(t * 1.1) * 0.012;
-      particles.rotation.y += dt * (0.08 + activeEnergy * 0.16);
-      beam.scale.x = 1 + activeEnergy * 0.025;
-      beam.scale.z = 1 + activeEnergy * 0.025;
-      holoRings.forEach((ring, i) => {
-        ring.rotation.z += dt * (0.08 + i * 0.025);
-        (ring.material as THREE.MeshBasicMaterial).opacity = 0.42 + activeEnergy * 0.18;
-      });
-      scanLines.forEach((line, i) => {
-        const wave = (t * 0.55 + i / scanLines.length) % 1;
-        line.position.y = 0.12 + wave * 2.34;
-        (line.material as THREE.MeshBasicMaterial).opacity = 0.055 + activeEnergy * 0.045;
-      });
-
-      const width = mount.clientWidth || 640;
-      const height = mount.clientHeight || 640;
-      if (renderer.domElement.width !== Math.floor(width * renderer.getPixelRatio()) || renderer.domElement.height !== Math.floor(height * renderer.getPixelRatio())) {
-        renderer.setSize(width, height, false);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-      }
-      renderer.render(scene, camera);
+      const dt = Math.min(clock.getDelta(), 0.05), t = performance.now() / 1000;
+      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.20;
+      presentation.rotation.y = THREE.MathUtils.lerp(presentation.rotation.y, targetRotation, 0.035);
+      presentation.position.y = 0.06 + Math.sin(t * 1.1) * (0.006 + intensity * 0.008);
+      presentation.scale.setScalar(1 + Math.sin(t * 1.5) * 0.002 + (speaking ? 0.003 : 0));
+      image.position.x = Math.sin(t * 0.72) * 0.006; depth.position.x = image.position.x * 0.55; edge.position.x = image.position.x * 0.25;
+      floorRing.rotation.z += dt * 0.08; stageRing.rotation.z -= dt * 0.045; particles.rotation.y += dt * 0.025;
+      (floorRing.material as THREE.MeshBasicMaterial).opacity = 0.38 + intensity * 0.10;
+      (stageRing.material as THREE.MeshBasicMaterial).opacity = 0.28 + intensity * 0.08;
+      (edge.material as THREE.MeshBasicMaterial).opacity = 0.035 + intensity * 0.02;
+      resize(); renderer.render(scene, camera);
     });
 
-    const onResize = () => {
-      const width = mount.clientWidth || 640;
-      const height = mount.clientHeight || 640;
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-    window.addEventListener('resize', onResize);
-    onResize();
-
-    return () => {
-      window.removeEventListener('resize', onResize);
-      renderer.setAnimationLoop(null);
-      renderer.dispose();
-      mount.removeChild(renderer.domElement);
-      apiRef.current = null;
-    };
+    return () => { renderer.setAnimationLoop(null); renderer.dispose(); placeholder.dispose(); mount.removeChild(renderer.domElement); };
   }, [onApi, onStatus]);
 
-  return <div ref={mountRef} className="live-avatar" aria-label="Neeraj 3D hologram" />;
+  return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 520, position: 'relative', overflow: 'hidden' }} />;
 }
