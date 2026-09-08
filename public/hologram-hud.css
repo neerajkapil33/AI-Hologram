@@ -1,0 +1,13 @@
+.avatar-stage{position:relative;isolation:isolate}
+.avatar-stage:before{content:"";position:absolute;inset:4% 3%;z-index:20;pointer-events:none;border:1px solid rgba(83,224,255,.18);background:radial-gradient(circle at 50% 50%,transparent 0 31%,rgba(45,210,255,.045) 32%,transparent 33%),repeating-radial-gradient(circle at 50% 50%,transparent 0 92px,rgba(76,224,255,.07) 93px,transparent 95px),linear-gradient(90deg,transparent 0 8%,rgba(74,224,255,.07) 8.1%,transparent 8.3% 91.7%,rgba(74,224,255,.07) 91.9%,transparent 92%),linear-gradient(0deg,transparent 0 8%,rgba(74,224,255,.07) 8.1%,transparent 8.3% 91.7%,rgba(74,224,255,.07) 91.9%,transparent 92%);mask-image:linear-gradient(to bottom,transparent,black 10%,black 90%,transparent);opacity:.55}
+.avatar-stage:after{content:"NEURAL LINK  //  ONLINE\\A AUDIO SYNC   //  ACTIVE\\A HOLO FIELD  //  STABLE";position:absolute;right:5%;bottom:7%;z-index:21;pointer-events:none;white-space:pre;font:600 9px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:rgba(104,235,255,.68);text-align:right;text-shadow:0 0 8px rgba(58,220,255,.7);opacity:.72;animation:hudTelemetry 4.5s steps(1,end) infinite}
+.live-avatar{position:relative;z-index:10}
+.live-avatar:focus-visible{outline:1px solid rgba(96,235,255,.65);outline-offset:6px}
+.stage-label{position:relative;z-index:30}
+.stage-label:after{content:"SYS // HOLO-V3";margin-left:12px;color:rgba(96,232,255,.58);font:600 8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em}
+.live-floor{position:relative;z-index:4}
+.live-floor:before{content:"";position:absolute;left:50%;bottom:-6px;width:150px;height:26px;transform:translateX(-50%);border-radius:50%;border:1px solid rgba(78,225,255,.3);box-shadow:0 0 18px rgba(45,215,255,.22),inset 0 0 18px rgba(45,215,255,.12);background:repeating-linear-gradient(90deg,transparent 0 13px,rgba(87,229,255,.2) 14px 15px,transparent 16px 29px);animation:hudBase 3.8s ease-in-out infinite}
+@keyframes hudTelemetry{0%,86%,100%{opacity:.62;transform:translateX(0)}87%{opacity:.95;transform:translateX(-2px)}88%{opacity:.35;transform:translateX(3px)}89%{opacity:.72;transform:translateX(0)}}
+@keyframes hudBase{0%,100%{transform:translateX(-50%) scaleX(.88);opacity:.38}50%{transform:translateX(-50%) scaleX(1.08);opacity:.8}}
+@media (prefers-reduced-motion:reduce){.avatar-stage:after,.live-floor:before{animation:none}.live-floor:before{opacity:.45}}
+@media (max-width:720px){.avatar-stage:after{right:3%;bottom:4%;font-size:7px}.stage-label:after{display:none}}
