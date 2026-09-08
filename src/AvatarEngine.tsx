@@ -11,7 +11,7 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 // STEP 1: human standing image first. GLB comes only after this stage is right.
-const STANDING_IMAGE = '/avatar/neeraj-stage.png';
+const STANDING_IMAGE = '/avatar/neeraj-stage.jpg';
 
 function placeholderTexture() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
@@ -22,7 +22,7 @@ function placeholderTexture() {
   x.strokeStyle = 'rgba(170,225,235,.25)'; x.strokeRect(24, 24, 464, 720);
   x.textAlign = 'center'; x.fillStyle = 'rgba(220,240,245,.78)'; x.font = '600 20px Arial';
   x.fillText('STANDING IMAGE', 256, 372); x.font = '14px Arial'; x.fillStyle = 'rgba(190,215,225,.6)';
-  x.fillText('Add /avatar/neeraj-stage.png', 256, 402);
+  x.fillText('Add /avatar/neeraj-stage.jpg', 256, 402);
   return new THREE.CanvasTexture(c);
 }
 
@@ -89,7 +89,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       imageMat.map = texture; imageMat.needsUpdate = true;
       depthMat.map = texture; depthMat.needsUpdate = true;
       onStatus?.('STEP 1 • STANDING HUMAN HOLOGRAM READY');
-    }, undefined, () => onStatus?.('STEP 1 • ADD /avatar/neeraj-stage.png TO ACTIVATE THE STANDING IMAGE'));
+    }, undefined, () => onStatus?.('STEP 1 • ADD /avatar/neeraj-stage.jpg TO ACTIVATE THE STANDING IMAGE'));
 
     let autoRotate = true, targetRotation = 0, speaking = false, intensity = 0.25;
     const clock = new THREE.Clock();
@@ -127,3 +127,4 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 520, position: 'relative', overflow: 'hidden' }} />;
 }
+
