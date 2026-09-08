@@ -50,14 +50,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       holoRings.push(ring);
     }
 
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.78, 0.94, 2.48, 48, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x2aaeff, transparent: true, opacity: 0.055, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    );
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.94, 2.48, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0x2aaeff, transparent: true, opacity: 0.055, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     beam.position.y = 1.24;
     hologramGroup.add(beam);
 
-    // Fine scan lines give the projection a visible holographic refresh pattern.
     const scanLines: THREE.Mesh[] = [];
     const scanMaterial = new THREE.MeshBasicMaterial({ color: 0x5fd7ff, transparent: true, opacity: 0.075, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     for (let i = 0; i < 46; i += 1) {
@@ -192,44 +188,53 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         if (rightArm) rightArm.rotation.z = THREE.MathUtils.lerp(rightArm.rotation.z, ['open_hand','explain','enumerate','emphasis','wave','bye_wave'].includes(gesture) ? -arm : 0, 0.06);
         if (leftArm) leftArm.rotation.z = THREE.MathUtils.lerp(leftArm.rotation.z, ['namaste','clap','contrast'].includes(gesture) ? arm * 0.9 : 0, 0.06);
       }
+
+      const audioIntensity = clamp(Number(perf.amplitude ?? perf.audioAmplitude ?? perf.voiceLevel ?? 0));
+      const activeEnergy = Math.max(audioIntensity, speaking ? 0.12 : 0);
       if (model) {
-        model.position.y = modelBaseY + Math.sin(t * 1.15) * 0.006 + (speaking ? Math.sin(t * 5.2) * 0.008 : 0);
-        model.rotation.y = THREE.MathUtils.lerp(model.rotation.y, Math.sin(t * 0.38) * 0.035, 0.025);
-        model.scale.setScalar(modelBaseScale * (1 + Math.sin(t * 1.7) * 0.0025));
+        model.position.y = modelBaseY + Math.sin(t * 1.15) * (0.006 + activeEnergy * 0.004) + (speaking ? Math.sin(t * 5.2) * 0.008 : 0);
+        model.rotation.y = THREE.MathUtils.lerp(model.rotation.y, Math.sin(t * 0.38) * (0.035 + activeEnergy * 0.025), 0.025);
+        model.scale.setScalar(modelBaseScale * (1 + Math.sin(t * 1.7) * 0.0025 + activeEnergy * 0.008));
+        model.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const raw = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+          for (const material of Array.isArray(raw) ? raw : [raw]) {
+            if (!material) continue;
+            material.emissiveIntensity = 0.18 + activeEnergy * 0.72;
+            material.opacity = 0.70 + activeEnergy * 0.18;
+          }
+        });
       }
 
       holoRings.forEach((ring, index) => {
         ring.rotation.z += dt * (index % 2 === 0 ? 0.42 : -0.3);
-        const pulse = 1 + Math.sin(t * (1.8 + index * 0.35) + index) * 0.035;
+        const pulse = 1 + Math.sin(t * (1.8 + index * 0.35) + index) * 0.035 + activeEnergy * 0.055;
         ring.scale.setScalar(pulse);
         const material = ring.material as THREE.MeshBasicMaterial;
-        material.opacity = 0.28 + (Math.sin(t * 2.2 + index) + 1) * 0.12;
+        material.opacity = 0.24 + (Math.sin(t * 2.2 + index) + 1) * 0.10 + activeEnergy * 0.22;
       });
-      (beam.material as THREE.MeshBasicMaterial).opacity = 0.035 + (Math.sin(t * 1.7) + 1) * 0.018;
+      (beam.material as THREE.MeshBasicMaterial).opacity = 0.035 + (Math.sin(t * 1.7) + 1) * 0.018 + activeEnergy * 0.045;
 
       scanLines.forEach((line, index) => {
-        const cycle = (t * 0.42 + index / scanLines.length) % 1;
+        const cycle = (t * (0.42 + activeEnergy * 0.7) + index / scanLines.length) % 1;
         line.position.y = 0.12 + cycle * 2.34;
         const material = line.material as THREE.MeshBasicMaterial;
-        material.opacity = 0.025 + (Math.sin(t * 3.5 + index * 0.7) + 1) * 0.028;
-        line.scale.x = 0.86 + Math.sin(t * 1.8 + index) * 0.08;
+        material.opacity = 0.02 + (Math.sin(t * 3.5 + index * 0.7) + 1) * 0.025 + activeEnergy * 0.09;
+        line.scale.x = 0.86 + Math.sin(t * 1.8 + index) * 0.08 + activeEnergy * 0.10;
       });
 
-      particles.rotation.y += dt * 0.08;
+      particles.rotation.y += dt * (0.08 + activeEnergy * 0.18);
       particles.position.y = 0.01 + Math.sin(t * 0.6) * 0.008;
+      const particleMaterial = particles.material as THREE.PointsMaterial;
+      particleMaterial.opacity = 0.56 + activeEnergy * 0.38;
+      particleMaterial.size = 0.012 + activeEnergy * 0.012;
       renderer.render(scene, camera);
     });
 
     const resize = () => { const w = mount.clientWidth || 1, h = mount.clientHeight || 1; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); };
     resize(); const ro = new ResizeObserver(resize); ro.observe(mount);
-    return () => {
-      renderer.setAnimationLoop(null);
-      ro.disconnect();
-      apiRef.current = null;
-      renderer.dispose();
-      particleGeometry.dispose();
-      if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
-    };
+    return () => { renderer.setAnimationLoop(null); ro.disconnect(); apiRef.current = null; renderer.dispose(); particleGeometry.dispose(); if (renderer.domElement.parentElement === mount) mount.removeChild(renderer.domElement); };
   }, [onApi, onStatus]);
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 420 }} />;
 }
