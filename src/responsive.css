@@ -1,0 +1,52 @@
+/* Keep the three-column composition usable until the layout genuinely needs to stack. */
+@media (max-width: 1180px) and (min-width: 921px) {
+  .hero-grid {
+    grid-template-columns: minmax(180px, 23vw) minmax(0, 1fr) minmax(180px, 23vw);
+    gap: 10px;
+    padding-left: 2vw;
+    padding-right: 2vw;
+  }
+
+  .speech-card { padding: 14px; }
+  .speech-card h2 { font-size: 22px; }
+  .speech-card p { font-size: 11px; }
+  .feature-row { padding: 6px 8px; }
+  .feature-row span { width: 32px; height: 32px; }
+  .feature-row b { font-size: 11px; }
+  .dual-card { grid-template-columns: 1fr; }
+  .dual-card > div + div { border-left: 0; border-top: 1px solid rgba(55,190,255,.25); }
+  .avatar-name { font-size: 27px; }
+  .avatar-sub { font-size: 7px; }
+}
+
+@media (max-width: 920px) and (min-width: 781px) {
+  .hero-grid {
+    grid-template-columns: minmax(160px, 185px) minmax(300px, 1fr) minmax(160px, 185px);
+    gap: 7px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .speech-card { padding: 11px; }
+  .speech-card h2 { font-size: 19px; }
+  .speech-card strong { font-size: 12px; }
+  .speech-card p { font-size: 10px; }
+  .feature-row { padding: 5px; gap: 6px; }
+  .feature-row span { width: 28px; height: 28px; font-size: 15px; }
+  .feature-row b { font-size: 10px; }
+  .feature-row small { font-size: 8px; }
+  .map-card { padding: 10px; }
+  .map-card strong { font-size: 27px; }
+  .dual-card > div { padding: 9px; }
+  .quote { font-size: 9px; }
+  .approach { padding: 9px; }
+  .approach-grid small { font-size: 7px; }
+  .avatar-name { font-size: 23px; letter-spacing: 7px; }
+  .conversation { width: 96%; }
+  .response { font-size: 10px; }
+}
+
+@media (max-width: 780px) {
+  .avatar-stage { height: calc(100dvh - 150px); }
+  .live-avatar { width: 100%; }
+}
