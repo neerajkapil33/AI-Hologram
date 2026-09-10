@@ -11,7 +11,7 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
-const AVATAR_SOURCE = '/profile/scene.gltf';
+const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -26,7 +26,11 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 100);
     camera.position.set(0, 1.25, 4.5);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor(0x02050a, 0);
@@ -113,20 +117,28 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
 
     const frameModel = (root: THREE.Object3D) => {
+      // Normalize the model once. Keep the mesh at scale 1 and animate the parent,
+      // so the avatar cannot accidentally be scaled twice.
+      root.scale.setScalar(1);
+      root.position.set(0, 0, 0);
+      root.updateMatrixWorld(true);
+
       const box = new THREE.Box3().setFromObject(root);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       const height = Math.max(size.y, 0.001);
+
       baseScale = Math.min(1.9 / height, 1.35);
-      root.scale.setScalar(baseScale);
-      root.position.x = -center.x * baseScale;
-      root.position.y = -box.min.y * baseScale + 0.03;
-      root.position.z = -center.z * baseScale;
+      root.position.x = -center.x;
+      root.position.y = -box.min.y;
+      root.position.z = -center.z;
+      root.updateMatrixWorld(true);
 
       const scaledHeight = height * baseScale;
-      const distance = (scaledHeight * 0.58) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, scaledHeight * 0.52, Math.max(2.6, distance * 1.12));
-      camera.lookAt(0, scaledHeight * 0.52, 0);
+      const visibleHeight = Math.max(scaledHeight * 1.08, 1.55);
+      const distance = (visibleHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      camera.position.set(0, scaledHeight * 0.5, Math.max(2.8, distance * 1.08));
+      camera.lookAt(0, scaledHeight * 0.5, 0);
     };
 
     onStatus?.('LOADING • NEERAJ 3D MODEL');
@@ -160,7 +172,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') {
-        intensity = Math.max(0, Math.min(1, Number(cmd.value?.intensity ?? intensity)));
+        intensity = Math.max(0, Math.min(1, Number(cmd.value?.intensity ?? cmd.value?.amplitude ?? intensity)));
         if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
       }
       if (cmd.type === 'gesture') {
@@ -177,20 +189,27 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
     onApi?.({ command });
 
+    let lastWidth = 0;
+    let lastHeight = 0;
     const resize = () => {
       const w = mount.clientWidth || 640;
       const h = mount.clientHeight || 640;
+      if (w === lastWidth && h === lastHeight) return;
+      lastWidth = w;
+      lastHeight = h;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(mount);
 
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = performance.now() / 1000;
-      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.16;
+      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.12;
       avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation, 0.045);
       avatarRoot.position.y = Math.sin(t * 1.15) * (0.004 + intensity * 0.006);
       avatarRoot.scale.setScalar(baseScale * (1 + Math.sin(t * 1.7) * 0.0015 + (speaking ? 0.0025 : 0)));
@@ -205,12 +224,12 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       particles.rotation.y += dt * 0.025;
       (floorRing.material as THREE.MeshBasicMaterial).opacity = 0.38 + intensity * 0.12;
       (stageRing.material as THREE.MeshBasicMaterial).opacity = 0.28 + intensity * 0.1;
-      resize();
       renderer.render(scene, camera);
     });
 
     return () => {
       renderer.setAnimationLoop(null);
+      resizeObserver.disconnect();
       mixer?.stopAllAction();
       if (model) avatarRoot.remove(model);
       renderer.dispose();
