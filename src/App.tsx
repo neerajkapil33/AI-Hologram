@@ -8,7 +8,7 @@ type Recognition = { start: () => void; stop: () => void; continuous: boolean; i
 type SpeechWindow = Window & { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
 type Mode = 'profile' | 'companion';
 type LiveRoom = { conversation_url?: string; conversation_id?: string; error?: string; message?: string; configured?: boolean };
-const PROFILE_IMAGE = '/profile/neeraj-profile.jpg';
+
 const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
 
 const categoryPrompts: Record<string, string> = {
@@ -28,6 +28,17 @@ const categoryPrompts: Record<string, string> = {
   Strategic: 'Give me a strategic, structured approach to my career question.',
   'Data-Driven': 'Use a data-driven approach to help me make a better career decision.',
   'People First': 'Focus on people, leadership, communication, and sustainable career growth in your advice.',
+};
+
+const localCareerReply = (question: string) => {
+  const q = question.toLowerCase();
+  if (q.includes('resume') || q.includes('linkedin')) return 'Start with a sharp value proposition, quantify 3–5 achievements, align keywords to the target role, and make LinkedIn headline + About + Featured tell the same career story.';
+  if (q.includes('interview')) return 'Interview mode: answer with Situation → Action → Result, then add what you learned. Practice one role-specific story for leadership, conflict, failure, impact and problem solving.';
+  if (q.includes('global') || q.includes('country') || q.includes('opportun')) return 'Global strategy: choose 2–3 target markets, map 20 target companies, identify skill gaps, build warm connections, and tailor your profile to each market rather than applying everywhere.';
+  if (q.includes('technology') || q.includes('fintech') || q.includes('healthcare') || q.includes('telecom') || q.includes('energy') || q.includes('startup') || q.includes('mnc')) return 'Focus on the intersection of domain + technology + measurable business impact. Pick one high-value capability, build visible proof through projects, and target roles where that capability solves a real business problem.';
+  if (q.includes('data-driven')) return 'Use a simple decision scorecard: learning potential, compensation, brand value, role scope, manager quality, location and long-term optionality. Score each 1–10 before choosing.';
+  if (q.includes('empathetic') || q.includes('people first')) return 'People-first coaching: protect your energy, choose environments where you can learn and contribute, and treat relationships and communication as career assets—not side skills.';
+  return 'A strong next move is usually a focused one: define the role you want, identify the top 3 skills it rewards, build evidence for those skills, and create a 30-day action plan. Connect the AI brain to unlock personalized live responses.';
 };
 
 function App() {
@@ -64,12 +75,16 @@ function App() {
     const clean = text.trim();
     if (!clean) return;
     setMode('companion');
-    if (brainStatus !== 'ready') { setStatus('BRAIN OFFLINE • START backend/main.py'); return; }
     setTranscript(clean);
     setResponse('');
-    setStatus('NEERAJ THINKING • FORMING YOUR RESPONSE');
     command({ type: 'expression', value: 'thinking' });
     command({ type: 'gesture', value: 'nod' });
+    if (brainStatus !== 'ready') {
+      setResponse(localCareerReply(clean));
+      setStatus('LOCAL CAREER MODE • AI BRAIN READY TO CONNECT');
+      return;
+    }
+    setStatus('NEERAJ THINKING • FORMING YOUR RESPONSE');
     sendText(clean, language);
   };
 
@@ -80,8 +95,8 @@ function App() {
 
   const activateProfile = () => {
     setMode('profile');
-    setResponse('Neeraj Kapil • Career strategist • Technology, FinTech, Healthcare, Energy, Telecom • Global professional network');
-    setTranscript('PROFILE');
+    setResponse('Career strategist • Technology • FinTech • Healthcare • Energy • Telecom • Global professional network');
+    setTranscript('PROFILE MODE');
     setStatus('PROFILE MODE • NEERAJ CAREER INTELLIGENCE');
     command({ type: 'expression', value: 'neutral' });
     command({ type: 'gesture', value: 'idle' });
@@ -110,6 +125,11 @@ function App() {
 
   const startVideoCall = async () => {
     setMode('companion');
+    if (!API_BASE_URL) {
+      setResponse('Video Call is ready for your Tavus/backend endpoint. Add VITE_BACKEND_HTTP_URL in the deployment environment to launch a real call.');
+      setStatus('VIDEO CALL • BACKEND ENDPOINT NOT CONFIGURED');
+      return;
+    }
     setStartingCall(true);
     setStatus('CONNECTING • HIGH-FIDELITY NEERAJ AI REPLICA');
     try {
@@ -124,19 +144,18 @@ function App() {
   };
 
   return <main className="neeraj-screen">
-    <style>{`.header-center{display:none}.neeraj-header .system-pill{flex-shrink:0}.feature-row,.focus-button,.approach-button{font:inherit;text-align:left;cursor:pointer;color:inherit;width:100%;appearance:none}.feature-row{transition:transform .18s ease,border-color .18s ease,background .18s ease}.feature-row:hover,.feature-row:focus-visible{background:rgba(0,242,254,.09);outline:none}.focus-button,.approach-button{border:0;background:transparent}.focus-button:hover,.approach-button:hover{background:rgba(0,242,254,.055);outline:none}.focus-button:focus-visible,.approach-button:focus-visible{outline:1px solid var(--cyan);outline-offset:-1px}.mode-switch button:not(.active):hover{color:#b9efff;background:rgba(0,242,254,.07)}.chat-input button,.call-button,.stop-button{cursor:pointer}.call-button:disabled{cursor:wait;opacity:.6}`}</style>
     <canvas ref={ref} className="hologram-canvas" /><div className="screen-grid" />
     <header className="neeraj-header"><div className="brand-lockup"><div className="brand-orb">N</div><div><div className="brand-name">NEERAJ <span>AI</span></div><div className="brand-line">Career. Growth. Global.</div></div></div><div className="system-pill"><i /> ONLINE <b>│</b> WEBGPU <b>│</b> TYPEGPU <b>│</b> REACT</div></header>
     <section className="hero-grid">
       <aside className="left-rail">
-        <div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>I help professionals navigate their career journey — with clarity, skills, opportunities and the right strategy.</p><button onClick={() => { setMode('companion'); setStatus('READY • ASK NEERAJ ANYTHING'); chatInputRef.current?.focus(); }}>Ask me anything…</button></div>
-        {['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <button className="feature-row" key={a} onClick={() => activateCategory(a)} aria-label={`Open ${a}` }><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></button>; })}
+        <div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>Navigate career decisions with clarity, skills, opportunities and strategy — now with instant local fallback actions even when the AI brain is offline.</p><button onClick={() => { setMode('companion'); setStatus('READY • ASK NEERAJ ANYTHING'); chatInputRef.current?.focus(); }}>Ask me anything →</button></div>
+        {['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <button className="feature-row" key={a} onClick={() => activateCategory(a)} aria-label={`Open ${a}`}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></button>; })}
       </aside>
       <section className="avatar-stage">
         <div className="stage-label"><span>●</span> {liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE 3D AI CAREER COMPANION'}</div>
         {liveRoom?.conversation_url ? <div className="live-call-stage"><iframe title="Neeraj AI live video career companion" src={liveRoom.conversation_url} allow="camera; microphone; autoplay; fullscreen; display-capture" /><div className="call-badge">● LIVE • AI REPRESENTATION</div></div> : <div className="live-avatar">{avatarVideo ? <video src={avatarVideo} autoPlay playsInline onEnded={() => setAvatarVideo(null)} /> : <AvatarEngine onApi={(api) => { apiRef.current = api; }} onStatus={setStatus} />}<div className="live-ring" /><div className="live-floor" /></div>}
         {performance && <div className="performance-strip"><span>FACE: {performance.expression}</span><span>GESTURE: {performance.gesture}</span><span>BODY: {performance.body}</span><span>GAZE: {performance.gaze}</span></div>}
-        <div className="conversation">{response && <div className="response">{response}</div>}{transcript && <div className="transcript">YOU: {transcript}</div>}</div>
+        <div className="conversation">{mode === 'profile' && <div className="profile-mode-card"><b>NEERAJ PROFILE</b><span>Career strategist • Global professional network</span></div>}{response && <div className="response">{response}</div>}{transcript && <div className="transcript">YOU: {transcript}</div>}</div>
       </section>
       <aside className="right-rail">
         <button className="map-card focus-button" onClick={() => activateCategory('Global Opportunities')} aria-label="Explore global opportunities"><div className="eyebrow">GLOBAL REACH</div><strong>75+<small>Countries</small></strong><div className="map-lines">✦　◌　✧　◌　✦</div></button>
