@@ -23,11 +23,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
-
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
-    camera.position.set(0, 0.8, 3.2);
-
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -50,12 +47,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
 
     const avatarRoot = new THREE.Group();
     stage.add(avatarRoot);
-
     const loader = new GLTFLoader();
     let model: THREE.Object3D | null = null;
     let hologramModel: THREE.Object3D | null = null;
     let mixer: THREE.AnimationMixer | null = null;
-    let baseScale = 1;
     let targetRotation = 0;
     let mouthTarget: { mesh: THREE.Mesh; index: number } | null = null;
     let speaking = false;
@@ -77,21 +72,15 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       root.updateMatrixWorld(true);
       const rawBox = new THREE.Box3().setFromObject(root);
       const rawHeight = Math.max(rawBox.getSize(new THREE.Vector3()).y, 0.001);
-
-      // Normalize the real GLB to a known full-body height.
-      baseScale = Math.min(1.48 / rawHeight, 1.0);
-      root.scale.setScalar(baseScale);
+      const scale = Math.min(1.48 / rawHeight, 1.0);
+      root.scale.setScalar(scale);
       root.updateMatrixWorld(true);
-
-      // Recalculate after scaling so the feet sit exactly on y=0 and the body is centered on x/z.
       const box = new THREE.Box3().setFromObject(root);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const height = Math.max(size.y, 0.001);
       root.position.set(-center.x, -box.min.y, -center.z);
       root.updateMatrixWorld(true);
-
-      // Camera is calculated from the final scaled body, not from the original GLB dimensions.
       const fitHeight = height * 1.10;
       const distance = (fitHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
       camera.position.set(0, height * 0.46, Math.max(2.05, distance * 1.14));
@@ -100,74 +89,52 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
 
     statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
-    loader.load(
-      AVATAR_SOURCE,
-      (gltf) => {
-        model = gltf.scene;
-
-        // Preserve the original GLB character, textures, rig and morph targets.
-        model.traverse((obj) => {
-          if (!(obj instanceof THREE.Mesh)) return;
-          obj.visible = true;
-          obj.castShadow = false;
-          obj.receiveShadow = false;
-          obj.renderOrder = 2;
-          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          mats.forEach((mat) => {
-            if (!mat) return;
-            mat.visible = true;
-            mat.transparent = true;
-            mat.opacity = 0.88;
-            mat.depthWrite = true;
-            mat.depthTest = true;
-            if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
-              mat.emissive.set(0x087f9e);
-              mat.emissiveIntensity = 0.16;
-              mat.needsUpdate = true;
-            }
-          });
+    loader.load(AVATAR_SOURCE, (gltf) => {
+      model = gltf.scene;
+      model.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        obj.visible = true;
+        obj.renderOrder = 2;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((mat) => {
+          if (!mat) return;
+          mat.visible = true;
+          mat.transparent = true;
+          mat.opacity = 0.88;
+          mat.depthWrite = true;
+          mat.depthTest = true;
+          if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
+            mat.emissive.set(0x087f9e);
+            mat.emissiveIntensity = 0.16;
+            mat.needsUpdate = true;
+          }
         });
+      });
 
-        avatarRoot.add(model);
-        frameModel(model);
-        mouthTarget = findMouthTarget(model);
+      avatarRoot.add(model);
+      frameModel(model);
+      mouthTarget = findMouthTarget(model);
 
-        // A separate, correctly skeleton-cloned wireframe gives the real character a visible hologram shell.
-        // It is never inserted while traversing the source GLB, so the original hierarchy remains intact.
-        hologramModel = cloneSkinned(model);
-        hologramModel.renderOrder = 3;
-        hologramModel.traverse((obj) => {
-          if (!(obj instanceof THREE.Mesh)) return;
-          obj.castShadow = false;
-          obj.receiveShadow = false;
-          obj.renderOrder = 3;
-          const material = new THREE.MeshBasicMaterial({
-            color: 0x45e6ff,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.12,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            depthTest: true,
-          });
-          obj.material = material;
-        });
-        avatarRoot.add(hologramModel);
+      // Separate skeleton-aware hologram shell. The source character hierarchy is never mutated during traversal.
+      hologramModel = cloneSkinned(model);
+      hologramModel.renderOrder = 3;
+      hologramModel.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        obj.renderOrder = 3;
+        obj.material = new THREE.MeshBasicMaterial({ color: 0x45e6ff, wireframe: true, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true });
+      });
+      avatarRoot.add(hologramModel);
 
-        if (gltf.animations?.length) {
-          mixer = new THREE.AnimationMixer(model);
-          const idle = gltf.animations.find((clip) => /idle|breath|stand/i.test(clip.name)) ?? gltf.animations[0];
-          mixer.clipAction(idle).reset().fadeIn(0.25).play();
-        }
-
-        statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
-      },
-      undefined,
-      (error) => {
-        console.error('Neeraj GLB load error', error);
-        statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin');
+      if (gltf.animations?.length) {
+        mixer = new THREE.AnimationMixer(model);
+        const idle = gltf.animations.find((clip) => /idle|breath|stand/i.test(clip.name)) ?? gltf.animations[0];
+        mixer.clipAction(idle).reset().fadeIn(0.25).play();
       }
-    );
+      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
+    }, undefined, (error) => {
+      console.error('Neeraj GLB load error', error);
+      statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin');
+    });
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') {
@@ -200,8 +167,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const time = performance.now() / 1000;
-      const gentleAuto = Math.sin(time * 0.22) * 0.018;
-      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation + gentleAuto, 0.045);
+      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation + Math.sin(time * 0.22) * 0.018, 0.045);
       if (mixer) mixer.update(dt);
       if (mouthTarget?.mesh.morphTargetInfluences) {
         const current = mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] ?? 0;
@@ -217,11 +183,11 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       renderer.setAnimationLoop(null);
       observer.disconnect();
       mixer?.stopAllAction();
-      if (model) avatarRoot.remove(model);
       if (hologramModel) {
-        hologramModel.traverse((obj) => { if (obj instanceof THREE.Mesh) obj.geometry.dispose(); if (obj instanceof THREE.Mesh && Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose()); else if (obj instanceof THREE.Mesh) obj.material.dispose(); });
+        hologramModel.traverse((obj) => { if (obj instanceof THREE.Mesh && !Array.isArray(obj.material)) obj.material.dispose(); });
         avatarRoot.remove(hologramModel);
       }
+      if (model) avatarRoot.remove(model);
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
