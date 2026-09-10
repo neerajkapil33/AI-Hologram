@@ -1,3 +1,106 @@
+/* Desktop alignment: the hero must stay inside the grid row instead of taking the full viewport again. */
+.hero-grid {
+  height: auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.left-rail,
+.right-rail {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.avatar-stage {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px 0 2px;
+}
+
+.stage-label {
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
+  grid-row: 1;
+  min-height: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-avatar,
+.profile-avatar,
+.live-call-stage {
+  grid-row: 2;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+}
+
+.avatar-name {
+  grid-row: 3;
+  margin-top: 0;
+  line-height: .95;
+}
+
+.avatar-sub {
+  grid-row: 4;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.stage-message {
+  grid-row: 5;
+  max-width: 100%;
+  min-height: 12px;
+  margin-top: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation {
+  grid-row: 6;
+  min-height: 0;
+  max-width: min(620px, 96%);
+  width: 96%;
+  margin: 0;
+}
+
+.response,
+.transcript,
+.performance-strip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.performance-strip {
+  max-height: 16px;
+  overflow: hidden;
+}
+
+.control-deck {
+  min-height: 0;
+}
+
+@media (min-width: 1181px) {
+  .hero-grid {
+    grid-template-columns: minmax(240px, 300px) minmax(480px, 1fr) minmax(240px, 300px);
+    gap: 18px;
+  }
+
+  .avatar-stage {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
 /* Keep the three-column composition usable until the layout genuinely needs to stack. */
 @media (max-width: 1180px) and (min-width: 921px) {
   .hero-grid {
@@ -47,6 +150,28 @@
 }
 
 @media (max-width: 780px) {
-  .avatar-stage { height: calc(100dvh - 150px); }
-  .live-avatar { width: 100%; }
+  .neeraj-screen {
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .hero-grid {
+    height: auto;
+  }
+
+  .avatar-stage {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+    height: calc(100dvh - 150px);
+    min-height: 500px;
+  }
+
+  .live-avatar {
+    width: 100%;
+    height: 100%;
+  }
+
+  .avatar-sub,
+  .stage-message {
+    white-space: normal;
+  }
 }
