@@ -24,8 +24,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     if (!mount) return;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
-    camera.position.set(0, 0.8, 3.2);
+    const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -33,17 +32,36 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     renderer.setClearColor(0x000000, 0);
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xe8fbff, 0x152536, 1.8));
-    const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(2.5, 5, 4); scene.add(key);
-    const rim = new THREE.DirectionalLight(0x32dcff, 1.6); rim.position.set(-3, 3, -3); scene.add(rim);
-    const fill = new THREE.PointLight(0x8bdfff, 0.7, 8); fill.position.set(0, 1.4, 2.5); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xdffaff, 0x07131f, 1.65));
+    const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(2.5, 5, 4); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x28ddff, 2.0); rim.position.set(-3, 3.5, -3); scene.add(rim);
+    const fill = new THREE.PointLight(0x66eaff, 0.65, 8); fill.position.set(0, 1.3, 2.5); scene.add(fill);
 
     const stage = new THREE.Group();
     scene.add(stage);
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(1.25, 96), new THREE.MeshBasicMaterial({ color: 0x06131d, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-    floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; stage.add(floor);
-    const floorRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.845, 128), new THREE.MeshBasicMaterial({ color: 0x45e6ff, transparent: true, opacity: 0.75, side: THREE.DoubleSide }));
-    floorRing.rotation.x = -Math.PI / 2; floorRing.position.y = 0.025; stage.add(floorRing);
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(1.28, 96),
+      new THREE.MeshBasicMaterial({ color: 0x061722, transparent: true, opacity: 0.62, side: THREE.DoubleSide })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 0.01;
+    stage.add(floor);
+
+    const floorRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.82, 0.85, 128),
+      new THREE.MeshBasicMaterial({ color: 0x45e6ff, transparent: true, opacity: 0.82, side: THREE.DoubleSide })
+    );
+    floorRing.rotation.x = -Math.PI / 2;
+    floorRing.position.y = 0.025;
+    stage.add(floorRing);
+
+    const innerRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.05, 1.065, 128),
+      new THREE.MeshBasicMaterial({ color: 0x31cfff, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    );
+    innerRing.rotation.x = -Math.PI / 2;
+    innerRing.position.y = 0.028;
+    stage.add(innerRing);
 
     const avatarRoot = new THREE.Group();
     stage.add(avatarRoot);
@@ -71,17 +89,32 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       root.scale.setScalar(1);
       root.position.set(0, 0, 0);
       root.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const height = Math.max(size.y, 0.001);
-      baseScale = Math.min(1.62 / height, 1.0);
-      root.position.set(-center.x, -box.min.y, -center.z);
+
+      const rawBox = new THREE.Box3().setFromObject(root);
+      const rawSize = rawBox.getSize(new THREE.Vector3());
+      const rawHeight = Math.max(rawSize.y, 0.001);
+
+      // Normalize the actual GLB first, then calculate the bounds again after scaling.
+      // This prevents the model position from being scaled away from the stage center.
+      baseScale = Math.min(1.55 / rawHeight, 1.0);
+      root.scale.setScalar(baseScale);
       root.updateMatrixWorld(true);
-      const scaledHeight = height * baseScale;
-      const distance = (scaledHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, scaledHeight * 0.48, Math.max(1.65, distance * 1.12));
-      camera.lookAt(0, scaledHeight * 0.48, 0);
+
+      const box = new THREE.Box3().setFromObject(root);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const height = Math.max(size.y, 0.001);
+
+      root.position.x -= center.x;
+      root.position.z -= center.z;
+      root.position.y -= box.min.y;
+      root.updateMatrixWorld(true);
+
+      // Keep the full body inside the central hologram volume with breathing room for head/feet.
+      const fitHeight = height * 1.08;
+      const distance = (fitHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      camera.position.set(0, height * 0.48, Math.max(2.05, distance * 1.16));
+      camera.lookAt(0, height * 0.48, 0);
     };
 
     statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
@@ -90,27 +123,28 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       (gltf) => {
         model = gltf.scene;
 
-        // First traverse ONLY the original GLB. Do not add children during this traversal.
-        // This keeps skinned meshes, textures and the original material hierarchy intact.
+        // Preserve the real character mesh, textures, rig and materials.
+        // Hologram styling is deliberately subtle so the face and clothing remain recognizable.
         model.traverse((obj) => {
           if (!(obj instanceof THREE.Mesh)) return;
           obj.visible = true;
           obj.castShadow = false;
           obj.receiveShadow = false;
-          obj.renderOrder = 1;
+          obj.renderOrder = 2;
 
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           mats.forEach((mat) => {
             if (!mat) return;
             mat.visible = true;
-            mat.transparent = false;
-            mat.opacity = 1;
+            mat.transparent = true;
+            mat.opacity = 0.9;
             mat.depthWrite = true;
             mat.depthTest = true;
-            // Preserve every original texture/color; only add a subtle holographic glow.
+            if ('side' in mat) mat.side = THREE.FrontSide;
             if (mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshPhysicalMaterial) {
-              mat.emissive.set(0x087d9d);
-              mat.emissiveIntensity = 0.18;
+              mat.emissive.set(0x087f9e);
+              mat.emissiveIntensity = 0.22;
+              mat.needsUpdate = true;
             }
           });
         });
@@ -147,12 +181,14 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
     apiRef.current?.({ command });
 
-    let lastW = 0, lastH = 0;
+    let lastW = 0;
+    let lastH = 0;
     const resize = () => {
       const w = Math.max(1, mount.clientWidth || 640);
       const h = Math.max(1, mount.clientHeight || 640);
       if (w === lastW && h === lastH) return;
-      lastW = w; lastH = h;
+      lastW = w;
+      lastH = h;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -165,9 +201,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const time = performance.now() / 1000;
-      const gentleAuto = Math.sin(time * 0.25) * 0.025;
-      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation + gentleAuto, 0.05);
-      avatarRoot.scale.setScalar(baseScale);
+      const gentleAuto = Math.sin(time * 0.22) * 0.018;
+      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation + gentleAuto, 0.045);
       if (mixer) mixer.update(dt);
       if (mouthTarget?.mesh.morphTargetInfluences) {
         const current = mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] ?? 0;
@@ -175,6 +210,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] = THREE.MathUtils.lerp(current, target, 0.18);
       }
       floorRing.rotation.z += dt * 0.08;
+      innerRing.rotation.z -= dt * 0.045;
       renderer.render(scene, camera);
     });
 
