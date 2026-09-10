@@ -1,25 +1,33 @@
 /**
- * ADVANCED DYNAMIC AVATAR IDLE & EXPRESSION ENGINE
- * Native Vite/Three.js module for organic blinking, eyebrow drift,
- * gaze/head-neck micro-drift, and positive insight expressions.
+ * ROBUST DYNAMIC AVATAR IDLE & EXPRESSION ENGINE
+ * Works against the actual GLTF rig instead of assuming one exact
+ * morph-target or bone naming convention.
  */
 
 import * as THREE from 'three';
 
-const EXPRESSION_MAP = {
-  blinkLeft: ['eyeBlinkLeft', 'Blink_Left', 'blink_L', 'mb_lab_eye_blink_L', 'shapes.left_eye_close'],
-  blinkRight: ['eyeBlinkRight', 'Blink_Right', 'blink_R', 'mb_lab_eye_blink_R', 'shapes.right_eye_close'],
-  browSneer: ['browDownLeft', 'browDownRight', 'Brow_Lower_L', 'Brow_Lower_R', 'mb_lab_brow_depress'],
-  smileShape: ['mouthSmile', 'Smile', 'mouth_Smile', 'Mouth_Smile_L', 'Mouth_Smile_R', 'mb_lab_mouth_smile'],
+const MORPH_ALIASES = {
+  blinkLeft: ['eyeblinkleft', 'blinkleft', 'blink_l', 'blinkleft', 'eyecloseleft', 'lefteyeclose', 'left_eye_close'],
+  blinkRight: ['eyeblinkright', 'blinkright', 'blink_r', 'blinkright', 'eyecloseright', 'righteyeclose', 'right_eye_close'],
+  brow: ['browdownleft', 'browdownright', 'browlowerl', 'browlowerr', 'browlowerleft', 'browlowerright', 'browdepress'],
+  smile: ['mouthsmile', 'smile', 'mouthsmilel', 'mouthsmiler', 'mouthsmileleft', 'mouthsmileright', 'mouth_smile_l', 'mouth_smile_r'],
 };
 
-const normalizeMorphName = (name) => name.replace(/[\s_-]+/g, '').toLowerCase();
+const normalize = (name = '') => name.replace(/[^a-z0-9]/gi, '').toLowerCase();
 
-const findMorphIndex = (mesh, keyType) => {
-  if (!mesh.morphTargetDictionary) return null;
-  const alternatives = [keyType, ...(EXPRESSION_MAP[keyType] ?? [])].map(normalizeMorphName);
-  const entry = Object.entries(mesh.morphTargetDictionary).find(([name]) => alternatives.includes(normalizeMorphName(name)));
-  return entry ? entry[1] : null;
+const matchesAlias = (name, aliases) => {
+  const value = normalize(name);
+  return aliases.some((alias) => {
+    const a = normalize(alias);
+    return value === a || value.includes(a) || a.includes(value);
+  });
+};
+
+const collectMorphs = (mesh, aliases) => {
+  if (!mesh.morphTargetDictionary) return [];
+  return Object.entries(mesh.morphTargetDictionary)
+    .filter(([name]) => matchesAlias(name, aliases))
+    .map(([, index]) => index);
 };
 
 export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => false } = {}) {
@@ -34,72 +42,76 @@ export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => fal
   let smileState = 0;
   let smileTarget = 0;
 
-  let headBone = null;
-  let neckBone = null;
-  const headBase = new THREE.Euler();
-  const neckBase = new THREE.Euler();
-
+  const headBones = [];
+  const neckBones = [];
+  const boneBases = new Map();
   const targets = [];
+
   avatarRoot.traverse((node) => {
     if (node.isBone) {
-      const name = node.name.toLowerCase();
-      // Prefer exact anatomical joints over similarly named helper bones.
-      if (!headBone && (name === 'head' || name.endsWith('_head') || name.includes('head'))) headBone = node;
-      if (!neckBone && (name === 'neck' || name.endsWith('_neck') || name.includes('neck'))) neckBone = node;
+      const name = normalize(node.name);
+      if (name.includes('head') && !name.includes('end')) headBones.push(node);
+      else if (name.includes('neck')) neckBones.push(node);
     }
+
     if (!(node instanceof THREE.Mesh) || !node.morphTargetDictionary || !node.morphTargetInfluences) return;
     targets.push({
       mesh: node,
-      blinkLeft: findMorphIndex(node, 'blinkLeft'),
-      blinkRight: findMorphIndex(node, 'blinkRight'),
-      brow: findMorphIndex(node, 'browSneer'),
-      smile: findMorphIndex(node, 'smileShape'),
+      blinkLeft: collectMorphs(node, MORPH_ALIASES.blinkLeft),
+      blinkRight: collectMorphs(node, MORPH_ALIASES.blinkRight),
+      brow: collectMorphs(node, MORPH_ALIASES.brow),
+      smile: collectMorphs(node, MORPH_ALIASES.smile),
     });
   });
 
-  if (headBone) headBase.copy(headBone.rotation);
-  if (neckBone) neckBase.copy(neckBone.rotation);
+  [...headBones, ...neckBones].forEach((bone) => boneBases.set(bone, bone.rotation.clone()));
 
-  const setMorph = (mesh, index, value, alpha) => {
-    if (index === null || index === undefined || !mesh.morphTargetInfluences) return;
-    const current = mesh.morphTargetInfluences[index] ?? 0;
-    mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(current, value, alpha);
+  const setMorphs = (mesh, indices, value, alpha) => {
+    if (!indices.length || !mesh.morphTargetInfluences) return;
+    indices.forEach((index) => {
+      const current = mesh.morphTargetInfluences[index] ?? 0;
+      mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(current, value, alpha);
+    });
   };
 
   const apply = (timestamp = performance.now()) => {
     if (disposed) return;
     const speaking = isSpeaking();
 
-    // Keep the existing skeleton pose as the reference and add only tiny idle drift.
     if (!speaking) {
       const t = timestamp * 0.0008;
-      const headY = Math.sin(t) * 0.04;
-      const headX = Math.cos(t * 0.5) * 0.02;
-      if (headBone) {
-        headBone.rotation.y = THREE.MathUtils.lerp(headBone.rotation.y, headBase.y + headY, 0.05);
-        headBone.rotation.x = THREE.MathUtils.lerp(headBone.rotation.x, headBase.x + headX, 0.05);
-      }
-      if (neckBone) neckBone.rotation.y = THREE.MathUtils.lerp(neckBone.rotation.y, neckBase.y + headY * 0.4, 0.05);
+      const headY = Math.sin(t) * 0.045;
+      const headX = Math.cos(t * 0.53) * 0.022;
+      headBones.forEach((bone) => {
+        const base = boneBases.get(bone);
+        if (!base) return;
+        bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, base.y + headY, 0.06);
+        bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, base.x + headX, 0.06);
+      });
+      neckBones.forEach((bone) => {
+        const base = boneBases.get(bone);
+        if (!base) return;
+        bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, base.y + headY * 0.42, 0.06);
+      });
     } else {
-      if (headBone) {
-        headBone.rotation.y = THREE.MathUtils.lerp(headBone.rotation.y, headBase.y, 0.1);
-        headBone.rotation.x = THREE.MathUtils.lerp(headBone.rotation.x, headBase.x, 0.1);
-      }
-      if (neckBone) neckBone.rotation.y = THREE.MathUtils.lerp(neckBone.rotation.y, neckBase.y, 0.1);
+      [...headBones, ...neckBones].forEach((bone) => {
+        const base = boneBases.get(bone);
+        if (base) bone.rotation.lerp(base, 0.12);
+      });
     }
 
     targets.forEach(({ mesh, blinkLeft, blinkRight, brow, smile }) => {
-      setMorph(mesh, blinkLeft, blinkState, 0.42);
-      setMorph(mesh, blinkRight, blinkState, 0.42);
-      if (!speaking) setMorph(mesh, brow, browState, 0.1);
-      setMorph(mesh, smile, smileState, 0.08);
+      setMorphs(mesh, blinkLeft, blinkState, 0.55);
+      setMorphs(mesh, blinkRight, blinkState, 0.55);
+      if (!speaking) setMorphs(mesh, brow, browState, 0.12);
+      setMorphs(mesh, smile, smileState, 0.1);
     });
   };
 
   const executeBlink = () => {
     if (disposed) return;
     const started = performance.now();
-    const duration = 160;
+    const duration = 180;
     const step = () => {
       if (disposed) return;
       const progress = (performance.now() - started) / duration;
@@ -121,13 +133,13 @@ export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => fal
     blinkTimer = window.setTimeout(() => {
       executeBlink();
       queueBlink();
-    }, 2000 + Math.random() * 4000);
+    }, 2200 + Math.random() * 3800);
   };
 
   const scheduleBrowDrift = () => {
     if (disposed) return;
     browTimer = window.setTimeout(() => {
-      if (!isSpeaking()) {
+      if (!isSpeaking() && targets.some((item) => item.brow.length)) {
         const target = Math.random() * 0.12;
         const drift = () => {
           if (disposed || isSpeaking()) return;
@@ -141,7 +153,7 @@ export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => fal
         drift();
       }
       scheduleBrowDrift();
-    }, 4000 + Math.random() * 3000);
+    }, 4200 + Math.random() * 3000);
   };
 
   const triggerInsightSmileExpression = (activeState) => {
@@ -165,7 +177,7 @@ export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => fal
   return {
     update: apply,
     triggerInsightSmileExpression,
-    bindAvatarSkeletonJoints: () => ({ headBone, neckBone }),
+    bindAvatarSkeletonJoints: () => ({ headBones, neckBones }),
     dispose: () => {
       disposed = true;
       if (blinkTimer !== null) window.clearTimeout(blinkTimer);
@@ -174,13 +186,15 @@ export function createMicroExpressionEngine(avatarRoot, { isSpeaking = () => fal
       if (browFrame !== null) cancelAnimationFrame(browFrame);
       if (smileFrame !== null) cancelAnimationFrame(smileFrame);
       targets.forEach(({ mesh, blinkLeft, blinkRight, brow, smile }) => {
-        setMorph(mesh, blinkLeft, 0, 1);
-        setMorph(mesh, blinkRight, 0, 1);
-        setMorph(mesh, brow, 0, 1);
-        setMorph(mesh, smile, 0, 1);
+        setMorphs(mesh, blinkLeft, 0, 1);
+        setMorphs(mesh, blinkRight, 0, 1);
+        setMorphs(mesh, brow, 0, 1);
+        setMorphs(mesh, smile, 0, 1);
       });
-      if (headBone) headBone.rotation.copy(headBase);
-      if (neckBone) neckBone.rotation.copy(neckBase);
+      [...headBones, ...neckBones].forEach((bone) => {
+        const base = boneBases.get(bone);
+        if (base) bone.rotation.copy(base);
+      });
     },
   };
 }
