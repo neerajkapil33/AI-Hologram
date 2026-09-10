@@ -11,7 +11,8 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 type MouthTarget = { mesh: THREE.Mesh; index: number };
-const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
+const AVATAR_SOURCE = `${import.meta.env.BASE_URL}avatar/avatar.glb`;
+const AVATAR_FALLBACK_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 const VISEME_MAP: Record<'mouthOpen' | 'jawOpen', string[]> = {
   mouthOpen: ['mouthOpen', 'mouth_open', 'Mouth_Open', 'openMouth', 'shapes.mouth_O', 'mb_lab_mouth_open', 'viseme_aa', 'viseme_AA', 'viseme_O_M'],
   jawOpen: ['jawOpen', 'jaw_open', 'Jaw_Open', 'jawDrop', 'Jaw_Lower', 'mb_lab_jaw_v', 'viseme_Jaw_Drop'],
@@ -42,13 +43,19 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const frameModel = (root: THREE.Object3D) => { root.scale.setScalar(1); root.position.set(0, 0, 0); root.updateMatrixWorld(true); const rawBox = new THREE.Box3().setFromObject(root); const rawHeight = Math.max(rawBox.getSize(new THREE.Vector3()).y, 0.001); root.scale.setScalar(Math.min(1.48 / rawHeight, 1)); root.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(root); const center = box.getCenter(new THREE.Vector3()); const size = box.getSize(new THREE.Vector3()); root.position.set(-center.x, -box.min.y, -center.z); root.updateMatrixWorld(true); const distance = (size.y * 0.54) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)); camera.position.set(0, size.y * 0.46, Math.max(2.05, distance * 1.16)); camera.lookAt(0, size.y * 0.46, 0); camera.updateProjectionMatrix(); };
     const findAction = (patterns: RegExp[]) => [...actions.entries()].find(([name]) => patterns.some((pattern) => pattern.test(name)))?.[1] ?? null;
     const crossfade = (action: THREE.AnimationAction | null, duration = 0.45) => { if (!action || action === activeAction) return; action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play(); activeAction?.crossFadeTo(action, duration, true); activeAction = action; };
-    statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
-    loader.load(AVATAR_SOURCE, (gltf) => {
-      model = gltf.scene; model.traverse((obj) => { if (!(obj instanceof THREE.Mesh)) return; obj.visible = true; obj.renderOrder = 2; const materials = Array.isArray(obj.material) ? obj.material : [obj.material]; materials.forEach((material) => { if (material) { material.visible = true; material.needsUpdate = true; } }); });
+    const prepareModel = (gltf: any) => {
+      model = gltf.scene;
+      model.traverse((obj: any) => { if (!(obj instanceof THREE.Mesh)) return; obj.visible = true; obj.renderOrder = 2; const materials = Array.isArray(obj.material) ? obj.material : [obj.material]; materials.forEach((material: any) => { if (material) { material.visible = true; material.needsUpdate = true; } }); });
       avatarRoot.add(model); frameModel(model); mouthTargets = findTargetMorphs(model, 'mouthOpen'); jawTargets = findTargetMorphs(model, 'jawOpen'); microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
-      if (gltf.animations?.length) { mixer = new THREE.AnimationMixer(model); gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip))); crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0); }
+      if (gltf.animations?.length) { mixer = new THREE.AnimationMixer(model); gltf.animations.forEach((clip: THREE.AnimationClip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip))); crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0); }
       statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}${mouthTargets.length || jawTargets.length ? ' • FACIAL VISEMES READY' : ''} • ORGANIC BLINK + GAZE READY • BREATH + SPEAKING WEIGHT READY`);
-    }, (xhr) => { if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`); }, (error) => { console.error('Neeraj GLTF load error', error); statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin'); });
+    };
+    statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
+    loader.load(AVATAR_SOURCE, prepareModel, (xhr) => { if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`); }, (error) => {
+      console.error('Neeraj production GLB load error', error);
+      statusRef.current?.('PRODUCTION GLB LOAD ERROR • TRYING GLTF SOURCE');
+      loader.load(AVATAR_FALLBACK_SOURCE, prepareModel, (fallbackError) => { console.error('Neeraj GLTF fallback load error', fallbackError); statusRef.current?.('3D MODEL LOAD ERROR • CHECK /avatar/avatar.glb'); });
+    });
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') { intensity = THREE.MathUtils.clamp(Number(cmd.value?.intensity ?? cmd.value?.amplitude ?? intensity), 0, 1); if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking; const emotion = String(cmd.value?.emotion ?? '').toLowerCase(); if (/happy|positive|excited|warm|insight|success/.test(emotion)) microExpressions?.triggerInsightSmileExpression(true); }
       else if (cmd.type === 'expression') { const value = cmd.value.toLowerCase(); if (/smile|positive|happy|warm|insight|success|confident|encourag/.test(value)) microExpressions?.triggerInsightSmileExpression(true); else if (/neutral|stop|rest/.test(value)) microExpressions?.triggerInsightSmileExpression(false); }
