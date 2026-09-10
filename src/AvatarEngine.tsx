@@ -15,6 +15,13 @@ const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const statusRef = useRef(onStatus);
+  const apiRef = useRef(onApi);
+
+  useEffect(() => {
+    statusRef.current = onStatus;
+    apiRef.current = onApi;
+  }, [onApi, onStatus]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -117,8 +124,6 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     };
 
     const frameModel = (root: THREE.Object3D) => {
-      // Normalize the model once. Keep the mesh at scale 1 and animate the parent,
-      // so the avatar cannot accidentally be scaled twice.
       root.scale.setScalar(1);
       root.position.set(0, 0, 0);
       root.updateMatrixWorld(true);
@@ -128,20 +133,19 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const center = box.getCenter(new THREE.Vector3());
       const height = Math.max(size.y, 0.001);
 
-      baseScale = Math.min(1.9 / height, 1.35);
-      root.position.x = -center.x;
-      root.position.y = -box.min.y;
-      root.position.z = -center.z;
+      // Normalize once. The parent owns the final display scale.
+      baseScale = Math.min(1.72 / height, 1.2);
+      root.position.set(-center.x, -box.min.y, -center.z);
       root.updateMatrixWorld(true);
 
       const scaledHeight = height * baseScale;
-      const visibleHeight = Math.max(scaledHeight * 1.08, 1.55);
+      const visibleHeight = Math.max(scaledHeight * 1.08, 1.45);
       const distance = (visibleHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, scaledHeight * 0.5, Math.max(2.8, distance * 1.08));
-      camera.lookAt(0, scaledHeight * 0.5, 0);
+      camera.position.set(0, scaledHeight * 0.48, Math.max(2.8, distance * 1.08));
+      camera.lookAt(0, scaledHeight * 0.48, 0);
     };
 
-    onStatus?.('LOADING • NEERAJ 3D MODEL');
+    statusRef.current?.('LOADING • NEERAJ 3D MODEL');
     loader.load(
       AVATAR_SOURCE,
       (gltf) => {
@@ -164,10 +168,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
           const idle = clips.find((clip) => /idle|breath|stand/i.test(clip.name)) ?? clips[0];
           mixer.clipAction(idle).reset().fadeIn(0.25).play();
         }
-        onStatus?.(`ONLINE • 3D NEERAJ READY${clips.length ? ` • ${clips.length} ANIMATION${clips.length > 1 ? 'S' : ''}` : ''}`);
+        statusRef.current?.(`ONLINE • 3D NEERAJ READY${clips.length ? ` • ${clips.length} ANIMATION${clips.length > 1 ? 'S' : ''}` : ''}`);
       },
       undefined,
-      () => onStatus?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin'),
+      () => statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin'),
     );
 
     const command = (cmd: AvatarCommand) => {
@@ -177,8 +181,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       }
       if (cmd.type === 'gesture') {
         const v = cmd.value.toLowerCase();
-        if (v.includes('left')) targetRotation = -0.18;
-        else if (v.includes('right')) targetRotation = 0.18;
+        if (v.includes('left')) targetRotation = -0.14;
+        else if (v.includes('right')) targetRotation = 0.14;
         else if (v.includes('front') || v.includes('camera') || v.includes('idle') || v.includes('nod')) targetRotation = 0;
       }
       if (cmd.type === 'expression' && cmd.value.toLowerCase() === 'auto-rotate') autoRotate = !autoRotate;
@@ -187,7 +191,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         mouthTarget.mesh.morphTargetInfluences![mouthTarget.index] = value;
       }
     };
-    onApi?.({ command });
+    apiRef.current?.({ command });
 
     let lastWidth = 0;
     let lastHeight = 0;
@@ -209,10 +213,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = performance.now() / 1000;
-      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.12;
+      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.08;
       avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation, 0.045);
-      avatarRoot.position.y = Math.sin(t * 1.15) * (0.004 + intensity * 0.006);
-      avatarRoot.scale.setScalar(baseScale * (1 + Math.sin(t * 1.7) * 0.0015 + (speaking ? 0.0025 : 0)));
+      avatarRoot.position.y = Math.sin(t * 1.15) * (0.003 + intensity * 0.004);
+      avatarRoot.scale.setScalar(baseScale * (1 + Math.sin(t * 1.7) * 0.001 + (speaking ? 0.0015 : 0)));
       if (mixer) mixer.update(dt);
       if (mouthTarget?.mesh.morphTargetInfluences) {
         const current = mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] ?? 0;
@@ -236,7 +240,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       pg.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
-  }, [onApi, onStatus]);
+  }, []);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative', overflow: 'hidden' }} />;
 }
