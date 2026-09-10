@@ -48,7 +48,7 @@ function App() {
     <header className="neeraj-header"><div className="brand-lockup"><div className="brand-orb">N</div><div><div className="brand-name">NEERAJ <span>AI</span></div><div className="brand-line">Career. Growth. Global.</div></div></div><div className="system-pill"><i /> ONLINE <b>│</b> WEBGPU <b>│</b> TYPEGPU <b>│</b> REACT</div></header>
     <section className="hero-grid">
       <aside className="left-rail"><div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>I help professionals navigate their career journey — with clarity, skills, opportunities and the right strategy.</p><button onClick={() => { setMode('companion'); setStatus('READY • 3D NEERAJ AVATAR'); }}>Ask me anything…</button></div>{['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <div className="feature-row" key={a}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></div>; })}</aside>
-      <section className="avatar-stage">
+      <section className="avatar-stage" style={{ gridTemplateRows: 'auto auto minmax(0,1fr) auto minmax(20px,auto)' }}>
         <div className="stage-intro">
           <div className="avatar-name">NEERAJ</div>
           <div className="avatar-sub">REAL-TIME 3D AVATAR • CAREER INTELLIGENCE</div>
