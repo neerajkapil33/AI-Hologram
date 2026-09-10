@@ -1,0 +1,39 @@
+name: Sandbox Preview Build
+
+on:
+  push:
+    branches: [sandbox-original-preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-preview-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sandbox
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript + Vite production build
+        run: pnpm run build
+      - name: Upload sandbox dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-hologram-sandbox-dist
+          path: dist
+          retention-days: 3
