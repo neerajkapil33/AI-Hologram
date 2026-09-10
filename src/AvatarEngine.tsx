@@ -12,11 +12,7 @@ type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void; onPrompt?: (text: string) => void };
 
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
-
-const VISeme_NAMES = [
-  'mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA', 'viseme_O_M',
-  'viseme_Jaw_Drop', 'jawDrop', 'mouth_open', 'mouthopen',
-];
+const VISeme_NAMES = ['mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA', 'viseme_O_M', 'viseme_Jaw_Drop', 'jawDrop', 'mouth_open', 'mouthopen'];
 
 export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -36,10 +32,8 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x020710, 0.035);
-
     const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
     camera.position.set(0, 0.75, 2.35);
-
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -47,7 +41,6 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
     renderer.toneMappingExposure = 1.15;
     renderer.setClearColor(0x000000, 0);
 
-    // Requested real-avatar anchor frame: the WebGL runtime lives in this target node.
     const canvasContainer = document.createElement('div');
     canvasContainer.id = 'canvas-runtime-container';
     canvasContainer.className = 'absolute inset-0 z-0 w-full h-full';
@@ -69,36 +62,23 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
 
     const stage = new THREE.Group();
     scene.add(stage);
-    const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(1.28, 96),
-      new THREE.MeshBasicMaterial({ color: 0x061722, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }),
-    );
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(1.28, 96), new THREE.MeshBasicMaterial({ color: 0x061722, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0.01;
     stage.add(floor);
-
     const grid = new THREE.GridHelper(6, 24, 0x06b6d4, 0x111e36);
     grid.position.y = 0.015;
     const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
     gridMaterials.forEach((material) => { material.transparent = true; material.opacity = 0.12; });
     stage.add(grid);
-
-    const innerRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.82, 0.845, 128),
-      new THREE.MeshBasicMaterial({ color: 0x45e6ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
-    );
+    const innerRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.845, 128), new THREE.MeshBasicMaterial({ color: 0x45e6ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
     innerRing.rotation.x = -Math.PI / 2;
     innerRing.position.y = 0.025;
     stage.add(innerRing);
-
-    const outerRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.05, 1.065, 128),
-      new THREE.MeshBasicMaterial({ color: 0x31cfff, transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }),
-    );
+    const outerRing = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.065, 128), new THREE.MeshBasicMaterial({ color: 0x31cfff, transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }));
     outerRing.rotation.x = -Math.PI / 2;
     outerRing.position.y = 0.028;
     stage.add(outerRing);
-
     const avatarRoot = new THREE.Group();
     stage.add(avatarRoot);
 
@@ -116,9 +96,7 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       const targets: { mesh: THREE.Mesh; index: number }[] = [];
       root.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) || !obj.morphTargetDictionary || !obj.morphTargetInfluences) return;
-        const key = Object.keys(obj.morphTargetDictionary).find((name) =>
-          VISeme_NAMES.some((candidate) => name.toLowerCase() === candidate.toLowerCase()),
-        );
+        const key = Object.keys(obj.morphTargetDictionary).find((name) => VISeme_NAMES.some((candidate) => name.toLowerCase() === candidate.toLowerCase()));
         if (key !== undefined) targets.push({ mesh: obj, index: obj.morphTargetDictionary[key] });
       });
       return targets;
@@ -147,9 +125,7 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       camera.updateProjectionMatrix();
     };
 
-    const findAction = (patterns: RegExp[]) =>
-      [...actions.entries()].find(([name]) => patterns.some((pattern) => pattern.test(name)))?.[1] ?? null;
-
+    const findAction = (patterns: RegExp[]) => [...actions.entries()].find(([name]) => patterns.some((pattern) => pattern.test(name)))?.[1] ?? null;
     const crossfade = (action: THREE.AnimationAction | null, duration = 0.45) => {
       if (!action || action === activeAction) return;
       action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
@@ -158,63 +134,37 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
     };
 
     statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
-    loader.load(
-      AVATAR_SOURCE,
-      (gltf) => {
-        model = gltf.scene;
-        model.traverse((obj) => {
-          if (!(obj instanceof THREE.Mesh)) return;
-          obj.visible = true;
-          obj.renderOrder = 2;
-          const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-          materials.forEach((material) => {
-            if (!material) return;
-            material.visible = true;
-            material.needsUpdate = true;
-          });
-        });
-        avatarRoot.add(model);
-        frameModel(model);
-        const mouthTargets = findMouthTargets(model);
-        mouthTarget = mouthTargets[0] ?? null;
+    loader.load(AVATAR_SOURCE, (gltf) => {
+      model = gltf.scene;
+      model.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        obj.visible = true;
+        obj.renderOrder = 2;
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        materials.forEach((material) => { if (material) { material.visible = true; material.needsUpdate = true; } });
+      });
+      avatarRoot.add(model);
+      frameModel(model);
+      mouthTarget = findMouthTargets(model)[0] ?? null;
+      if (gltf.animations?.length) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
+        crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0);
+      }
+      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
+    }, (xhr) => {
+      if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
+    }, (error) => {
+      console.error('Neeraj GLTF load error', error);
+      statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin');
+    });
 
-        if (gltf.animations?.length) {
-          mixer = new THREE.AnimationMixer(model);
-          gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
-          crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0);
-        }
-        statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
-      },
-      (xhr) => {
-        if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
-      },
-      (error) => {
-        console.error('Neeraj GLTF load error', error);
-        statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin');
-      },
-    );
-
-    const panel = document.createElement('div');
-    panel.className = 'avatar-light-controller';
-    panel.innerHTML = `
-      <div class="avatar-light-title">LIGHT CONTROLLER FIELD</div>
-      <label>POSITION_X <input id="avatar-light-x" type="range" min="-10" max="10" step="0.5" value="3"></label>
-      <label>INTENSITY <input id="avatar-light-intensity" type="range" min="0" max="8" step="0.2" value="2.4"></label>
-    `;
-    mount.appendChild(panel);
-    const xInput = panel.querySelector('#avatar-light-x') as HTMLInputElement | null;
-    const intensityInput = panel.querySelector('#avatar-light-intensity') as HTMLInputElement | null;
-    xInput?.addEventListener('input', () => { keyCyanLight.position.x = Number(xInput.value); });
-    intensityInput?.addEventListener('input', () => { keyCyanLight.intensity = Number(intensityInput.value); });
-
-    // Core 3D Real Avatar Anchor Frame UI overlay. The TALK action stays connected to React.
     const submitPrompt = () => {
       const text = promptInput.value.trim();
       if (!text) return;
       promptRef.current?.(text);
       promptInput.value = '';
     };
-
     const promptInput = document.createElement('input');
     promptInput.id = 'chat-input-field';
     promptInput.type = 'text';
@@ -222,14 +172,12 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
     promptInput.className = 'bg-transparent text-sm text-white flex-grow px-3 focus:outline-none';
     promptInput.autocomplete = 'off';
     promptInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submitPrompt(); });
-
     const promptButton = document.createElement('button');
     promptButton.id = 'send-prompt-trigger';
     promptButton.type = 'button';
     promptButton.className = 'px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold rounded-lg transition';
     promptButton.textContent = 'TALK';
     promptButton.addEventListener('click', submitPrompt);
-
     const promptBar = document.createElement('div');
     promptBar.className = 'avatar-prompt-overlay absolute bottom-6 inset-x-0 z-10 flex flex-col items-center px-4';
     promptBar.innerHTML = '<div class="avatar-prompt-shell flex items-center space-x-2 bg-slate-900/90 border border-cyan-500/20 rounded-xl p-2 w-full max-w-xl"></div>';
@@ -244,11 +192,8 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       if (cmd.type === 'gesture') {
         const value = cmd.value.toLowerCase();
         targetRotation = value.includes('left') ? -0.08 : value.includes('right') ? 0.08 : 0;
-        if (value.includes('run') || value.includes('walk') || value.includes('move')) {
-          crossfade(findAction([/run/i, /walk/i, /move/i]));
-        } else {
-          crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]));
-        }
+        if (value.includes('run') || value.includes('walk') || value.includes('move')) crossfade(findAction([/run/i, /walk/i, /move/i]));
+        else crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]));
       }
       if (cmd.type === 'viseme') {
         const weight = Math.max(0, Math.min(1, Number(cmd.weight ?? 0)));
@@ -268,7 +213,6 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(mount);
-
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
@@ -292,7 +236,6 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       observer.disconnect();
       mixer?.stopAllAction();
       if (model) avatarRoot.remove(model);
-      panel.remove();
       promptBar.remove();
       renderer.dispose();
       floor.geometry.dispose();
@@ -308,5 +251,5 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
     };
   }, []);
 
-  return <div ref={mountRef} className="relative w-full h-full min-h-[500px] bg-slate-950 rounded-2xl overflow-hidden" style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative', overflow: 'hidden' }} />;
+  return <div ref={mountRef} className="relative w-full h-full min-h-[500px]" />;
 }
