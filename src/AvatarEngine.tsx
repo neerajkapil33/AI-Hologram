@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import createMicroExpressionEngine from './idle-behavior.js';
+import createMicroExpressionEngine, { type MicroExpressionEngine } from './idle-behavior';
 
 export type AvatarCommand =
   | { type: 'expression'; value: string }
@@ -12,12 +12,6 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 type MouthTarget = { mesh: THREE.Mesh; index: number };
-type MicroExpressionEngine = {
-  update: (timestamp?: number) => void;
-  triggerInsightSmileExpression: (activeState: boolean) => void;
-  bindAvatarSkeletonJoints: () => { headBones: THREE.Object3D[]; neckBones: THREE.Object3D[] };
-  dispose: () => void;
-};
 
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 const VISEME_MAP: Record<'mouthOpen' | 'jawOpen', string[]> = {
@@ -30,13 +24,11 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef(onStatus);
   const apiRef = useRef(onApi);
-
   useEffect(() => { statusRef.current = onStatus; apiRef.current = onApi; }, [onApi, onStatus]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
-
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x020710, 0.035);
     const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
@@ -89,15 +81,12 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const alternatives = VISEME_MAP[standardKey].map(normalizeMorphName);
       root.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) || !obj.morphTargetDictionary || !obj.morphTargetInfluences) return;
-        Object.entries(obj.morphTargetDictionary).forEach(([name, index]) => {
-          if (alternatives.includes(normalizeMorphName(name))) targets.push({ mesh: obj, index });
-        });
+        Object.entries(obj.morphTargetDictionary).forEach(([name, index]) => { if (alternatives.includes(normalizeMorphName(name))) targets.push({ mesh: obj, index }); });
       });
       return targets;
     };
     const setTargets = (targets: MouthTarget[], weight: number) => targets.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, weight, 0.25); });
     const resetTargets = (targets: MouthTarget[]) => targets.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = 0; });
-
     const frameModel = (root: THREE.Object3D) => {
       root.scale.setScalar(1); root.position.set(0, 0, 0); root.updateMatrixWorld(true);
       const rawBox = new THREE.Box3().setFromObject(root); const rawSize = rawBox.getSize(new THREE.Vector3());
@@ -108,12 +97,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const fitHeight = height * 1.08; const distance = (fitHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
       camera.position.set(0, height * 0.46, Math.max(2.05, distance * 1.16)); camera.lookAt(0, height * 0.46, 0); camera.updateProjectionMatrix();
     };
-
     const findAction = (patterns: RegExp[]) => [...actions.entries()].find(([name]) => patterns.some((pattern) => pattern.test(name)))?.[1] ?? null;
-    const crossfade = (action: THREE.AnimationAction | null, duration = 0.45) => {
-      if (!action || action === activeAction) return;
-      action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play(); activeAction?.crossFadeTo(action, duration, true); activeAction = action;
-    };
+    const crossfade = (action: THREE.AnimationAction | null, duration = 0.45) => { if (!action || action === activeAction) return; action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play(); activeAction?.crossFadeTo(action, duration, true); activeAction = action; };
 
     statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
     loader.load(AVATAR_SOURCE, (gltf) => {
@@ -126,7 +111,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       });
       avatarRoot.add(model); frameModel(model);
       mouthTargets = findTargetMorphs(model, 'mouthOpen'); jawTargets = findTargetMorphs(model, 'jawOpen');
-      microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking }) as MicroExpressionEngine;
+      microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
       if (gltf.animations?.length) {
         mixer = new THREE.AnimationMixer(model);
         gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
@@ -141,21 +126,18 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
         const emotion = String(cmd.value?.emotion ?? '').toLowerCase();
         if (/happy|positive|excited|warm|insight|success/.test(emotion)) microExpressions?.triggerInsightSmileExpression(true);
-      }
-      if (cmd.type === 'expression') {
+      } else if (cmd.type === 'expression') {
         const value = cmd.value.toLowerCase();
         const positive = /smile|positive|happy|warm|insight|success|confident|encourag/.test(value);
         const neutral = /neutral|stop|rest/.test(value);
         if (positive) microExpressions?.triggerInsightSmileExpression(true);
         else if (neutral) microExpressions?.triggerInsightSmileExpression(false);
-      }
-      if (cmd.type === 'gesture') {
+      } else if (cmd.type === 'gesture') {
         const value = cmd.value.toLowerCase();
         targetRotation = value.includes('left') ? -0.08 : value.includes('right') ? 0.08 : 0;
         if (value.includes('run') || value.includes('walk') || value.includes('move')) crossfade(findAction([/run/i, /walk/i, /move/i]));
         else crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]));
-      }
-      if (cmd.type === 'viseme') {
+      } else if (cmd.type === 'viseme') {
         const weight = Math.max(0, Math.min(1, Number(cmd.weight ?? 0)));
         if (/jaw/i.test(cmd.value)) setTargets(jawTargets, Math.min(weight * 0.5, 0.45)); else setTargets(mouthTargets, Math.min(weight, 0.85));
         if (/silence|close|rest/i.test(cmd.value)) { resetTargets(mouthTargets); resetTargets(jawTargets); }
@@ -164,7 +146,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     apiRef.current?.({ command });
 
     const resize = () => { const w = Math.max(1, mount.clientWidth || 640); const h = Math.max(1, mount.clientHeight || 640); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
-    resize(); const observer = new ResizeObserver(resize); observer.observe(mount);
+    resize(); const observer = new ResizeObserver(resize);
+    observer.observe(mount);
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05); const time = performance.now() / 1000;
@@ -174,13 +157,11 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       innerRing.rotation.z += dt * 0.08; outerRing.rotation.z -= dt * 0.045; grid.rotation.y += dt * 0.003; keyCyanLight.intensity = 2.35 + Math.sin(time * 1.8) * 0.18;
       renderer.render(scene, camera);
     });
-
     return () => {
       renderer.setAnimationLoop(null); observer.disconnect(); microExpressions?.dispose(); mixer?.stopAllAction(); resetTargets(mouthTargets); resetTargets(jawTargets);
       if (model) avatarRoot.remove(model); renderer.dispose(); floor.geometry.dispose(); (floor.material as THREE.Material).dispose(); grid.geometry.dispose(); gridMaterials.forEach((material) => material.dispose()); innerRing.geometry.dispose(); (innerRing.material as THREE.Material).dispose(); outerRing.geometry.dispose(); (outerRing.material as THREE.Material).dispose();
       if (renderer.domElement.parentNode === canvasContainer) canvasContainer.removeChild(renderer.domElement); canvasContainer.remove();
     };
   }, []);
-
   return <div ref={mountRef} className="relative w-full h-full min-h-[500px]" />;
 }
