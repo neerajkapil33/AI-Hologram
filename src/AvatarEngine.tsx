@@ -25,9 +25,9 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     if (!mount) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x03070c, 0.055);
-    const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
-    camera.position.set(0, 1.2, 4.5);
+    scene.fog = new THREE.FogExp2(0x03070c, 0.04);
+    const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
+    camera.position.set(0, 1.1, 4.2);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -35,10 +35,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     renderer.setClearColor(0x02050a, 0);
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0x9defff, 0x07101a, 1.2));
-    const key = new THREE.DirectionalLight(0x9fefff, 1.2); key.position.set(2.5, 4.5, 4); scene.add(key);
-    const rim = new THREE.DirectionalLight(0x36d9ff, 2.0); rim.position.set(-3, 2.5, -3); scene.add(rim);
-    const fill = new THREE.PointLight(0x2c8dff, 0.9, 7); fill.position.set(0, 1.8, 1.5); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xd8f7ff, 0x06101a, 1.35));
+    const key = new THREE.DirectionalLight(0xffffff, 1.65); key.position.set(2.5, 4.5, 4); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x39dcff, 1.7); rim.position.set(-3, 2.5, -3); scene.add(rim);
+    const fill = new THREE.PointLight(0x62bfff, 0.8, 8); fill.position.set(0, 1.6, 2); scene.add(fill);
 
     const stage = new THREE.Group(); scene.add(stage);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(1.25, 96), new THREE.MeshStandardMaterial({ color: 0x071019, metalness: 0.4, roughness: 0.48 }));
@@ -48,28 +48,24 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const stageRing = new THREE.Mesh(new THREE.TorusGeometry(0.86, 0.009, 8, 128), new THREE.MeshBasicMaterial({ color: 0xa5e0e8, transparent: true, opacity: 0.36, side: THREE.DoubleSide }));
     stageRing.rotation.x = Math.PI / 2; stageRing.position.y = 0.045; stage.add(stageRing);
 
-    const particleCount = 90;
+    const particleCount = 110;
     const positions = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount; i++) { const a = Math.random() * Math.PI * 2; const r = 0.82 + Math.random() * 0.58; positions[i * 3] = Math.cos(a) * r; positions[i * 3 + 1] = 0.08 + Math.random() * 2.5; positions[i * 3 + 2] = Math.sin(a) * r; }
+    for (let i = 0; i < particleCount; i++) { const a = Math.random() * Math.PI * 2; const r = 0.82 + Math.random() * 0.62; positions[i * 3] = Math.cos(a) * r; positions[i * 3 + 1] = 0.08 + Math.random() * 2.5; positions[i * 3 + 2] = Math.sin(a) * r; }
     const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.28, depthWrite: false })); stage.add(particles);
+    const particles = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xc5e8ee, size: 0.008, transparent: true, opacity: 0.3, depthWrite: false })); stage.add(particles);
 
     const avatarRoot = new THREE.Group(); stage.add(avatarRoot);
-    const hologramShell = new THREE.Group();
-    hologramShell.name = 'NEERAJ_HOLOGRAM_SHELL';
-    avatarRoot.add(hologramShell);
+    const shellMaterials: THREE.Material[] = [];
 
     const loader = new GLTFLoader();
     let model: THREE.Object3D | null = null;
     let mixer: THREE.AnimationMixer | null = null;
-    let clips: THREE.AnimationClip[] = [];
     let autoRotate = true;
     let targetRotation = 0;
     let speaking = false;
     let intensity = 0.25;
     let mouthTarget: { mesh: THREE.Mesh; index: number } | null = null;
     let baseScale = 1;
-    const shellMaterials: THREE.Material[] = [];
 
     const findMouthTarget = (root: THREE.Object3D) => {
       let best: { mesh: THREE.Mesh; index: number } | null = null;
@@ -83,77 +79,76 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       const height = Math.max(size.y, 0.001);
-      baseScale = Math.min(1.62 / height, 1.0);
+      baseScale = Math.min(1.48 / height, 1.0);
       root.position.set(-center.x, -box.min.y, -center.z);
       root.updateMatrixWorld(true);
       const scaledHeight = height * baseScale;
       const distance = (scaledHeight * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, scaledHeight * 0.48, Math.max(2.9, distance * 1.14));
-      camera.lookAt(0, scaledHeight * 0.47, 0);
+      camera.position.set(0, scaledHeight * 0.46, Math.max(3.15, distance * 1.18));
+      camera.lookAt(0, scaledHeight * 0.46, 0);
     };
 
-    statusRef.current?.('LOADING • NEERAJ 3D MODEL');
+    statusRef.current?.('LOADING • REAL NEERAJ 3D MODEL');
     loader.load(AVATAR_SOURCE, (gltf) => {
       model = gltf.scene;
       model.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
-        object.castShadow = false; object.receiveShadow = false;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        const shellMaterialsForMesh: THREE.Material[] = [];
+        object.castShadow = false;
+        object.receiveShadow = false;
+        object.renderOrder = 1;
 
-        materials.forEach((material) => {
-          if (!material) return;
-          // Keep the actual GLB texture/details visible. The hologram is a transparent
-          // treatment over the real character rather than replacing him with a solid cyan mesh.
-          const real = material.clone() as THREE.MeshStandardMaterial;
+        const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material];
+        const realMaterials: THREE.Material[] = [];
+        sourceMaterials.forEach((source) => {
+          if (!source) return;
+          // Preserve the model's original maps/colors. Only make it lightly translucent.
+          const real = source.clone();
           real.transparent = true;
-          real.opacity = 0.82;
+          real.opacity = 0.9;
           real.depthWrite = true;
           real.side = THREE.DoubleSide;
-          if ('color' in real) real.color.multiplyScalar(1.15);
-          if ('emissive' in real && real.emissive) {
-            real.emissive.set(0x0a6d86);
-            real.emissiveIntensity = 0.38;
+          if (real instanceof THREE.MeshStandardMaterial || real instanceof THREE.MeshPhysicalMaterial) {
+            real.emissive.set(0x063d4d);
+            real.emissiveIntensity = 0.12;
           }
-          object.material = real;
-
-          // A second, slightly enlarged wireframe pass creates the transparent
-          // projection shell around the recognizable Neeraj geometry.
-          const shell = new THREE.MeshBasicMaterial({
-            color: 0x53e7ff,
-            transparent: true,
-            opacity: 0.17,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            depthTest: true,
-            wireframe: true,
-            side: THREE.DoubleSide,
-          });
-          shellMaterials.push(shell);
-          shellMaterialsForMesh.push(shell);
+          realMaterials.push(real);
         });
+        object.material = realMaterials.length === 1 ? realMaterials[0] : realMaterials;
 
-        if (shellMaterialsForMesh.length) {
-          const shellMesh = new THREE.Mesh(object.geometry, shellMaterialsForMesh.length === 1 ? shellMaterialsForMesh[0] : shellMaterialsForMesh);
-          shellMesh.position.copy(object.position);
-          shellMesh.quaternion.copy(object.quaternion);
-          shellMesh.scale.copy(object.scale).multiplyScalar(1.008);
-          shellMesh.renderOrder = 3;
-          hologramShell.add(shellMesh);
-        }
+        // Shell is a CHILD of the exact mesh, so animation/skin transforms can never drift.
+        const shell = new THREE.Mesh(object.geometry, new THREE.MeshBasicMaterial({
+          color: 0x52e8ff,
+          transparent: true,
+          opacity: 0.18,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          depthTest: true,
+          wireframe: true,
+          side: THREE.DoubleSide,
+        }));
+        shell.name = 'NEERAJ_HOLOGRAM_SHELL';
+        shell.position.set(0, 0, 0);
+        shell.rotation.set(0, 0, 0);
+        shell.scale.setScalar(1.012);
+        shell.renderOrder = 3;
+        object.add(shell);
+        shellMaterials.push(shell.material);
       });
 
       avatarRoot.add(model);
       frameModel(model);
       mouthTarget = findMouthTarget(model);
-      clips = gltf.animations ?? [];
-      if (clips.length) { mixer = new THREE.AnimationMixer(model); const idle = clips.find((clip) => /idle|breath|stand/i.test(clip.name)) ?? clips[0]; mixer.clipAction(idle).reset().fadeIn(0.25).play(); }
-      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${clips.length ? ` • ${clips.length} ANIMATION${clips.length > 1 ? 'S' : ''}` : ''}`);
+      if (gltf.animations?.length) {
+        mixer = new THREE.AnimationMixer(model);
+        const idle = gltf.animations.find((clip) => /idle|breath|stand/i.test(clip.name)) ?? gltf.animations[0];
+        mixer.clipAction(idle).reset().fadeIn(0.25).play();
+      }
+      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
     }, undefined, () => statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin'));
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') { intensity = Math.max(0, Math.min(1, Number(cmd.value?.intensity ?? cmd.value?.amplitude ?? intensity))); if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking; }
-      if (cmd.type === 'gesture') { const v = cmd.value.toLowerCase(); if (v.includes('left')) targetRotation = -0.14; else if (v.includes('right')) targetRotation = 0.14; else targetRotation = 0; }
+      if (cmd.type === 'gesture') { const v = cmd.value.toLowerCase(); if (v.includes('left')) targetRotation = -0.1; else if (v.includes('right')) targetRotation = 0.1; else targetRotation = 0; }
       if (cmd.type === 'expression' && cmd.value.toLowerCase() === 'auto-rotate') autoRotate = !autoRotate;
       if (cmd.type === 'viseme' && mouthTarget) mouthTarget.mesh.morphTargetInfluences![mouthTarget.index] = Math.max(0, Math.min(1, Number(cmd.weight ?? 0)));
     };
@@ -165,20 +160,22 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05), t = performance.now() / 1000;
-      if (autoRotate) targetRotation = Math.sin(t * 0.34) * 0.045;
-      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation, 0.045);
-      avatarRoot.position.y = Math.sin(t * 1.15) * (0.003 + intensity * 0.004);
-      avatarRoot.scale.setScalar(baseScale * (1 + Math.sin(t * 1.7) * 0.001 + (speaking ? 0.0015 : 0)));
+      if (autoRotate) targetRotation = Math.sin(t * 0.26) * 0.035;
+      avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation, 0.055);
+      avatarRoot.position.y = Math.sin(t * 0.8) * (0.002 + intensity * 0.003);
+      avatarRoot.scale.setScalar(baseScale * (1 + (speaking ? 0.001 : 0)));
       if (mixer) mixer.update(dt);
       if (mouthTarget?.mesh.morphTargetInfluences) { const current = mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] ?? 0; const target = speaking ? Math.max(0.04, intensity * 0.5) : 0; mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] = THREE.MathUtils.lerp(current, target, 0.18); }
-      floorRing.rotation.z += dt * 0.08; stageRing.rotation.z -= dt * 0.045; particles.rotation.y += dt * 0.025;
+      floorRing.rotation.z += dt * 0.08;
+      stageRing.rotation.z -= dt * 0.045;
+      particles.rotation.y += dt * 0.025;
       (floorRing.material as THREE.MeshBasicMaterial).opacity = 0.38 + intensity * 0.12;
       (stageRing.material as THREE.MeshBasicMaterial).opacity = 0.28 + intensity * 0.1;
-      shellMaterials.forEach((material) => { (material as THREE.MeshBasicMaterial).opacity = 0.12 + intensity * 0.13 + Math.sin(t * 5.5) * 0.025; });
+      shellMaterials.forEach((material) => { (material as THREE.MeshBasicMaterial).opacity = 0.11 + intensity * 0.14 + Math.sin(t * 4.5) * 0.025; });
       renderer.render(scene, camera);
     });
 
-    return () => { renderer.setAnimationLoop(null); resizeObserver.disconnect(); mixer?.stopAllAction(); if (model) avatarRoot.remove(model); hologramShell.clear(); shellMaterials.forEach((material) => material.dispose()); renderer.dispose(); pg.dispose(); if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement); };
+    return () => { renderer.setAnimationLoop(null); resizeObserver.disconnect(); mixer?.stopAllAction(); if (model) avatarRoot.remove(model); shellMaterials.forEach((material) => material.dispose()); renderer.dispose(); pg.dispose(); if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement); };
   }, []);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative', overflow: 'hidden' }} />;
