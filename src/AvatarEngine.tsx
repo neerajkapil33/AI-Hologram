@@ -9,22 +9,20 @@ export type AvatarCommand =
   | { type: 'performance'; value: any };
 
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
-type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void; onPrompt?: (text: string) => void };
+type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 const VISeme_NAMES = ['mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA', 'viseme_O_M', 'viseme_Jaw_Drop', 'jawDrop', 'mouth_open', 'mouthopen'];
 
-export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
+export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef(onStatus);
   const apiRef = useRef(onApi);
-  const promptRef = useRef(onPrompt);
 
   useEffect(() => {
     statusRef.current = onStatus;
     apiRef.current = onApi;
-    promptRef.current = onPrompt;
-  }, [onApi, onPrompt, onStatus]);
+  }, [onApi, onStatus]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -159,31 +157,6 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/scene.gltf + scene.bin');
     });
 
-    const submitPrompt = () => {
-      const text = promptInput.value.trim();
-      if (!text) return;
-      promptRef.current?.(text);
-      promptInput.value = '';
-    };
-    const promptInput = document.createElement('input');
-    promptInput.id = 'chat-input-field';
-    promptInput.type = 'text';
-    promptInput.placeholder = 'Ask your AI companion anything...';
-    promptInput.className = 'bg-transparent text-sm text-white flex-grow px-3 focus:outline-none';
-    promptInput.autocomplete = 'off';
-    promptInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submitPrompt(); });
-    const promptButton = document.createElement('button');
-    promptButton.id = 'send-prompt-trigger';
-    promptButton.type = 'button';
-    promptButton.className = 'px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-bold rounded-lg transition';
-    promptButton.textContent = 'TALK';
-    promptButton.addEventListener('click', submitPrompt);
-    const promptBar = document.createElement('div');
-    promptBar.className = 'avatar-prompt-overlay absolute bottom-6 inset-x-0 z-10 flex flex-col items-center px-4';
-    promptBar.innerHTML = '<div class="avatar-prompt-shell flex items-center space-x-2 bg-slate-900/90 border border-cyan-500/20 rounded-xl p-2 w-full max-w-xl"></div>';
-    promptBar.querySelector('div')?.append(promptInput, promptButton);
-    mount.appendChild(promptBar);
-
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') {
         intensity = Math.max(0, Math.min(1, Number(cmd.value?.intensity ?? cmd.value?.amplitude ?? intensity)));
@@ -236,7 +209,6 @@ export default function AvatarEngine({ onStatus, onApi, onPrompt }: Props) {
       observer.disconnect();
       mixer?.stopAllAction();
       if (model) avatarRoot.remove(model);
-      promptBar.remove();
       renderer.dispose();
       floor.geometry.dispose();
       (floor.material as THREE.Material).dispose();
