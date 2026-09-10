@@ -12,6 +12,12 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 type MouthTarget = { mesh: THREE.Mesh; index: number };
+type MicroExpressionEngine = {
+  update: (timestamp?: number) => void;
+  triggerInsightSmileExpression: (activeState: boolean) => void;
+  bindAvatarSkeletonJoints: () => { headBones: THREE.Object3D[]; neckBones: THREE.Object3D[] };
+  dispose: () => void;
+};
 
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 const VISEME_MAP: Record<'mouthOpen' | 'jawOpen', string[]> = {
@@ -69,7 +75,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const loader = new GLTFLoader();
     let model: THREE.Object3D | null = null;
     let mixer: THREE.AnimationMixer | null = null;
-    let microExpressions: ReturnType<typeof createMicroExpressionEngine> | null = null;
+    let microExpressions: MicroExpressionEngine | null = null;
     const actions = new Map<string, THREE.AnimationAction>();
     let activeAction: THREE.AnimationAction | null = null;
     let targetRotation = 0;
@@ -120,7 +126,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       });
       avatarRoot.add(model); frameModel(model);
       mouthTargets = findTargetMorphs(model, 'mouthOpen'); jawTargets = findTargetMorphs(model, 'jawOpen');
-      microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
+      microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking }) as MicroExpressionEngine;
       if (gltf.animations?.length) {
         mixer = new THREE.AnimationMixer(model);
         gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
