@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import createMicroExpressionEngine from './idle-behavior.js';
 
 export type AvatarCommand =
   | { type: 'expression'; value: string }
@@ -15,8 +16,6 @@ type MouthTarget = { mesh: THREE.Mesh; index: number };
 
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
 
-// Bridges the names emitted by the AI voice/viseme layer with common
-// Blender, MB-Lab, Ready Player Me and generic morph-target conventions.
 const VISEME_MAP: Record<'mouthOpen' | 'jawOpen', string[]> = {
   mouthOpen: ['mouthOpen', 'mouth_open', 'Mouth_Open', 'openMouth', 'shapes.mouth_O', 'mb_lab_mouth_open', 'viseme_aa', 'viseme_AA', 'viseme_O_M'],
   jawOpen: ['jawOpen', 'jaw_open', 'Jaw_Open', 'jawDrop', 'Jaw_Lower', 'mb_lab_jaw_v', 'viseme_Jaw_Drop'],
@@ -93,6 +92,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const loader = new GLTFLoader();
     let model: THREE.Object3D | null = null;
     let mixer: THREE.AnimationMixer | null = null;
+    let microExpressions: ReturnType<typeof createMicroExpressionEngine> | null = null;
     const actions = new Map<string, THREE.AnimationAction>();
     let activeAction: THREE.AnimationAction | null = null;
     let targetRotation = 0;
@@ -171,12 +171,13 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       frameModel(model);
       mouthTargets = findTargetMorphs(model, 'mouthOpen');
       jawTargets = findTargetMorphs(model, 'jawOpen');
+      microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
       if (gltf.animations?.length) {
         mixer = new THREE.AnimationMixer(model);
         gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
         crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0);
       }
-      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}${mouthTargets.length || jawTargets.length ? ' • FACIAL VISEMES READY' : ''}`);
+      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}${mouthTargets.length || jawTargets.length ? ' • FACIAL VISEMES READY' : ''} • MICRO-EXPRESSIONS READY`);
     }, (xhr) => {
       if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
     }, (error) => {
@@ -228,6 +229,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         setTargets(mouthTargets, target);
         setTargets(jawTargets, Math.min(target * 0.5, 0.45));
       }
+      microExpressions?.update();
       innerRing.rotation.z += dt * 0.08;
       outerRing.rotation.z -= dt * 0.045;
       grid.rotation.y += dt * 0.003;
@@ -238,6 +240,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     return () => {
       renderer.setAnimationLoop(null);
       observer.disconnect();
+      microExpressions?.dispose();
       mixer?.stopAllAction();
       resetTargets(mouthTargets);
       resetTargets(jawTargets);
