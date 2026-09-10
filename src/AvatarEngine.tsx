@@ -11,8 +11,18 @@ export type AvatarCommand =
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (s: string) => void; onApi?: (api: AvatarApi) => void };
 
+type MouthTarget = { mesh: THREE.Mesh; index: number };
+
 const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/scene.gltf`;
-const VISeme_NAMES = ['mouthOpen', 'jawOpen', 'viseme_aa', 'viseme_AA', 'viseme_O_M', 'viseme_Jaw_Drop', 'jawDrop', 'mouth_open', 'mouthopen'];
+
+// Bridges the names emitted by the AI voice/viseme layer with common
+// Blender, MB-Lab, Ready Player Me and generic morph-target conventions.
+const VISEME_MAP: Record<'mouthOpen' | 'jawOpen', string[]> = {
+  mouthOpen: ['mouthOpen', 'mouth_open', 'Mouth_Open', 'openMouth', 'shapes.mouth_O', 'mb_lab_mouth_open', 'viseme_aa', 'viseme_AA', 'viseme_O_M'],
+  jawOpen: ['jawOpen', 'jaw_open', 'Jaw_Open', 'jawDrop', 'Jaw_Lower', 'mb_lab_jaw_v', 'viseme_Jaw_Drop'],
+};
+
+const normalizeMorphName = (name: string) => name.replace(/[\s_-]+/g, '').toLowerCase();
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -86,18 +96,34 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     const actions = new Map<string, THREE.AnimationAction>();
     let activeAction: THREE.AnimationAction | null = null;
     let targetRotation = 0;
-    let mouthTarget: { mesh: THREE.Mesh; index: number } | null = null;
+    let mouthTargets: MouthTarget[] = [];
+    let jawTargets: MouthTarget[] = [];
     let speaking = false;
     let intensity = 0.2;
 
-    const findMouthTargets = (root: THREE.Object3D) => {
-      const targets: { mesh: THREE.Mesh; index: number }[] = [];
+    const findTargetMorphs = (root: THREE.Object3D, standardKey: 'mouthOpen' | 'jawOpen') => {
+      const targets: MouthTarget[] = [];
+      const alternatives = VISEME_MAP[standardKey].map(normalizeMorphName);
       root.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) || !obj.morphTargetDictionary || !obj.morphTargetInfluences) return;
-        const key = Object.keys(obj.morphTargetDictionary).find((name) => VISeme_NAMES.some((candidate) => name.toLowerCase() === candidate.toLowerCase()));
-        if (key !== undefined) targets.push({ mesh: obj, index: obj.morphTargetDictionary[key] });
+        const match = Object.entries(obj.morphTargetDictionary).find(([name]) => alternatives.includes(normalizeMorphName(name)));
+        if (match) targets.push({ mesh: obj, index: match[1] });
       });
       return targets;
+    };
+
+    const setTargets = (targets: MouthTarget[], weight: number) => {
+      targets.forEach(({ mesh, index }) => {
+        if (!mesh.morphTargetInfluences) return;
+        const current = mesh.morphTargetInfluences[index] ?? 0;
+        mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(current, weight, 0.25);
+      });
+    };
+
+    const resetTargets = (targets: MouthTarget[]) => {
+      targets.forEach(({ mesh, index }) => {
+        if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = 0;
+      });
     };
 
     const frameModel = (root: THREE.Object3D) => {
@@ -143,13 +169,14 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       });
       avatarRoot.add(model);
       frameModel(model);
-      mouthTarget = findMouthTargets(model)[0] ?? null;
+      mouthTargets = findTargetMorphs(model, 'mouthOpen');
+      jawTargets = findTargetMorphs(model, 'jawOpen');
       if (gltf.animations?.length) {
         mixer = new THREE.AnimationMixer(model);
         gltf.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
         crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0);
       }
-      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}`);
+      statusRef.current?.(`ONLINE • REAL NEERAJ 3D READY${gltf.animations?.length ? ` • ${gltf.animations.length} ANIMATION${gltf.animations.length > 1 ? 'S' : ''}` : ''}${mouthTargets.length || jawTargets.length ? ' • FACIAL VISEMES READY' : ''}`);
     }, (xhr) => {
       if (xhr.total > 0) statusRef.current?.(`LOADING • REAL NEERAJ 3D MODEL • ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
     }, (error) => {
@@ -170,8 +197,12 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       }
       if (cmd.type === 'viseme') {
         const weight = Math.max(0, Math.min(1, Number(cmd.weight ?? 0)));
-        if (mouthTarget) mouthTarget.mesh.morphTargetInfluences![mouthTarget.index] = weight;
-        if (/silence|close|rest/i.test(cmd.value) && mouthTarget) mouthTarget.mesh.morphTargetInfluences![mouthTarget.index] = 0;
+        if (/jaw/i.test(cmd.value)) setTargets(jawTargets, Math.min(weight * 0.5, 0.45));
+        else setTargets(mouthTargets, Math.min(weight, 0.85));
+        if (/silence|close|rest/i.test(cmd.value)) {
+          resetTargets(mouthTargets);
+          resetTargets(jawTargets);
+        }
       }
     };
     apiRef.current?.({ command });
@@ -192,10 +223,10 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const time = performance.now() / 1000;
       avatarRoot.rotation.y = THREE.MathUtils.lerp(avatarRoot.rotation.y, targetRotation + Math.sin(time * 0.22) * 0.018, 0.045);
       mixer?.update(dt);
-      if (mouthTarget?.mesh.morphTargetInfluences) {
-        const current = mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] ?? 0;
+      if (mouthTargets.length || jawTargets.length) {
         const target = speaking ? Math.max(0.04, intensity * 0.5) : 0;
-        mouthTarget.mesh.morphTargetInfluences[mouthTarget.index] = THREE.MathUtils.lerp(current, target, 0.18);
+        setTargets(mouthTargets, target);
+        setTargets(jawTargets, Math.min(target * 0.5, 0.45));
       }
       innerRing.rotation.z += dt * 0.08;
       outerRing.rotation.z -= dt * 0.045;
@@ -208,6 +239,8 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       renderer.setAnimationLoop(null);
       observer.disconnect();
       mixer?.stopAllAction();
+      resetTargets(mouthTargets);
+      resetTargets(jawTargets);
       if (model) avatarRoot.remove(model);
       renderer.dispose();
       floor.geometry.dispose();
