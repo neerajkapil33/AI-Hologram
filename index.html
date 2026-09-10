@@ -10,7 +10,53 @@
     <link rel="stylesheet" href="/hologram-audio-hud.css" />
   </head>
   <body>
+    <div id="hologram-loader" class="fixed inset-0 bg-[#020710] z-50 flex flex-col items-center justify-center transition-opacity duration-500" aria-live="polite">
+      <div class="relative w-24 h-24 mb-4">
+        <div class="absolute inset-0 rounded-full border-4 border-cyan-500/20"></div>
+        <div class="absolute inset-0 rounded-full border-4 border-t-cyan-400 animate-spin shadow-[0_0_15px_#00f2fe]"></div>
+      </div>
+      <div class="text-xs uppercase tracking-[0.3em] text-cyan-400 font-bold mb-1">// COMPILING 3D CHARACTER METRICS //</div>
+      <div id="loader-progress" class="text-[10px] text-slate-500 font-mono">DOWNLOADING DATA: 0%</div>
+    </div>
+
     <div id="root"></div>
+
+    <div id="spectrum-hud" class="spectrum-hud" aria-label="Live voice spectrum">
+      <div class="spectrum-label">VOICE VECTOR <span>LIVE</span></div>
+      <canvas id="volume-spectrum-track"></canvas>
+    </div>
+
+    <script>
+      (() => {
+        const loader = document.getElementById('hologram-loader');
+        const progress = document.getElementById('loader-progress');
+        const hide = () => {
+          if (!loader) return;
+          loader.classList.add('opacity-0', 'pointer-events-none');
+          window.setTimeout(() => loader.remove(), 650);
+        };
+        const observeRoot = () => {
+          const root = document.getElementById('root');
+          if (!root) return;
+          const update = () => {
+            const text = root.textContent || '';
+            const match = text.match(/REAL NEERAJ 3D MODEL\s*•\s*(\d+)%/i);
+            if (match && progress) progress.textContent = `DOWNLOADING DATA: ${match[1]}%`;
+            if (/REAL NEERAJ 3D READY/i.test(text)) hide();
+            if (/3D MODEL LOAD ERROR/i.test(text)) {
+              if (progress) progress.textContent = '3D ASSET ERROR • CHECK MODEL DATA';
+              window.setTimeout(hide, 1800);
+            }
+          };
+          new MutationObserver(update).observe(root, { childList: true, subtree: true, characterData: true });
+          update();
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observeRoot, { once: true });
+        else observeRoot();
+        window.addEventListener('load', () => window.setTimeout(hide, 12000), { once: true });
+      })();
+    </script>
+    <script src="/audio-sync.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
