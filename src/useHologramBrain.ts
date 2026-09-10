@@ -91,6 +91,9 @@ export function useHologramBrain(opts: {
       const raw = Math.min(1, avg / 90);
       smoothed += (raw - smoothed) * 0.22;
       onAmplitude(smoothed);
+      window.dispatchEvent(new CustomEvent('neeraj:audio-spectrum', {
+        detail: { bytes: new Uint8Array(freqData), amplitude: smoothed },
+      }));
       raf = requestAnimationFrame(tick);
     };
     tick();
@@ -99,6 +102,9 @@ export function useHologramBrain(opts: {
     currentSourceRef.current = null;
     cancelAnimationFrame(raf);
     onAmplitude(0);
+    window.dispatchEvent(new CustomEvent('neeraj:audio-spectrum', {
+      detail: { bytes: new Uint8Array(freqData), amplitude: 0, ended: true },
+    }));
     onSpeechEnd();
   };
 
