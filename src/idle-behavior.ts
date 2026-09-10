@@ -104,7 +104,10 @@ export default function createMicroExpressionEngine(avatarRoot: THREE.Object3D, 
     } else {
       [...headBones, ...neckBones].forEach((bone) => {
         const base = boneBases.get(bone);
-        if (base) bone.rotation.lerp(base, 0.12);
+        if (!base) return;
+        bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, base.x, 0.12);
+        bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, base.y, 0.12);
+        bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, base.z, 0.12);
       });
     }
     targets.forEach(({ mesh, blinkLeft, blinkRight, brow, smile }) => {
