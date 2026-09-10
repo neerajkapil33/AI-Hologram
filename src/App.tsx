@@ -49,9 +49,14 @@ function App() {
     <section className="hero-grid">
       <aside className="left-rail"><div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>I help professionals navigate their career journey — with clarity, skills, opportunities and the right strategy.</p><button onClick={() => { setMode('companion'); setStatus('READY • 3D NEERAJ AVATAR'); }}>Ask me anything…</button></div>{['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <div className="feature-row" key={a}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></div>; })}</aside>
       <section className="avatar-stage">
+        <div className="stage-intro">
+          <div className="avatar-name">NEERAJ</div>
+          <div className="avatar-sub">REAL-TIME 3D AVATAR • CAREER INTELLIGENCE</div>
+          <div className="stage-message">{status}</div>
+          <div className="stage-prompt">Ask Neeraj about career growth, leadership, interviews, skills or opportunities</div>
+        </div>
         <div className="stage-label"><span>●</span> {liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE 3D AI CAREER COMPANION'}</div>
         {liveRoom?.conversation_url ? <div className="live-call-stage"><iframe title="Neeraj AI live video career companion" src={liveRoom.conversation_url} allow="camera; microphone; autoplay; fullscreen; display-capture" /><div className="call-badge">● LIVE • AI REPRESENTATION</div></div> : <div className="live-avatar">{avatarVideo ? <video src={avatarVideo} autoPlay playsInline onEnded={() => setAvatarVideo(null)} /> : <AvatarEngine onApi={(api) => { apiRef.current = api; }} onStatus={setStatus} />}<div className="live-ring" /><div className="live-floor" /></div>}
-        <div className="avatar-name">NEERAJ</div><div className="avatar-sub">REAL-TIME 3D AVATAR • CAREER INTELLIGENCE</div><div className="stage-message">{status}</div>
         {performance && <div className="performance-strip"><span>FACE: {performance.expression}</span><span>GESTURE: {performance.gesture}</span><span>BODY: {performance.body}</span><span>GAZE: {performance.gaze}</span></div>}
         <div className="conversation"><div className="response">{response}</div>{transcript && <div className="transcript">YOU: {transcript}</div>}</div>
       </section>
