@@ -10,6 +10,7 @@ type Mode = 'profile' | 'companion';
 type LiveRoom = { conversation_url?: string; conversation_id?: string; error?: string; message?: string; configured?: boolean };
 
 const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/, '');
+const TELEMETRY_ENDPOINT = API_BASE_URL ? `${API_BASE_URL}/api/v1/analyze` : '';
 
 const categoryPrompts: Record<string, string> = {
   'Career Guidance': 'Give me practical career guidance: help me plan, pivot, and progress based on my current goals.',
@@ -57,16 +58,18 @@ function App() {
   const [liveRoom, setLiveRoom] = useState<LiveRoom | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const [performance, setPerformance] = useState<AvatarPerformance | null>(null);
+  const [activeCategory, setActiveCategory] = useState('Career Guidance');
 
   const renderPipeline = useMemo(() => root.createRenderPipeline({ vertex: common.fullScreenTriangle, fragment: ({ uv }) => { 'use gpu'; return d.vec4f(0.003, 0.018 + uv.y * 0.015, 0.04 + uv.x * 0.025, 1); } }), [root]);
   const { ref, ctxRef } = useConfigureContext({ autoResize: true, alphaMode: 'premultiplied' });
   useFrame(() => { if (ctxRef.current) renderPipeline.withColorAttachment({ view: ctxRef.current }).draw(3); });
   const command = (c: AvatarCommand) => apiRef.current?.command(c);
+
   const { status: brainStatus, sendText, stopSpeaking } = useHologramBrain({
     onAssistantText: (text) => setResponse(text),
     onPerformance: (p) => { setPerformance(p); command({ type: 'performance', value: p }); setStatus(`NEERAJ ${p.emotion.toUpperCase()} • ${p.gesture.toUpperCase()} • ${p.body.toUpperCase()}`); },
     onSpeechStart: () => { setSpeaking(true); setStatus('NEERAJ SPEAKING • LIVE AI VOICE + EXPRESSION'); command({ type: 'expression', value: 'speaking' }); },
-    onSpeechEnd: () => { setSpeaking(false); setStatus('ONLINE • NEERAJ IS LISTENING'); command({ type: 'expression', value: 'neutral' }); command({ type: 'gesture', value: 'idle' }); command({ type: 'performance', value: { amplitude: 0, speaking: false } }); },
+    onSpeechEnd: () => { setSpeaking(false); setStatus('NEERAJ READY • LISTENING'); command({ type: 'expression', value: 'neutral' }); command({ type: 'gesture', value: 'idle' }); command({ type: 'performance', value: { amplitude: 0, speaking: false } }); },
     onAmplitude: (level) => { command({ type: 'performance', value: { amplitude: level, voiceLevel: level, intensity: Math.max(0.15, level), speaking: level > 0.02 } }); command({ type: 'viseme', value: 'mouthOpen', weight: level }); },
     onAvatarVideo: (src) => setAvatarVideo(src),
   });
@@ -88,8 +91,27 @@ function App() {
     sendText(clean, language);
   };
 
-  const activateCategory = (name: string) => {
-    chatInputRef.current?.focus();
+  const dispatchTelemetry = async (domain: string) => {
+    if (!TELEMETRY_ENDPOINT) return null;
+    try {
+      const res = await fetch(TELEMETRY_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: 'NEERAJ-WEB', domain, client_timestamp: new Date().toISOString(), system_metrics: { health: 950, agility: 42, power: 68 } }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json() as { recommended_speed?: number };
+    } catch {
+      return null;
+    }
+  };
+
+  const activateCategory = async (name: string) => {
+    setActiveCategory(name);
+    setStatus(`CATEGORY • ${name.toUpperCase()}`);
+    const telemetry = await dispatchTelemetry(name);
+    const shouldRun = telemetry?.recommended_speed ? telemetry.recommended_speed > 1000 : /opportunities|interview/i.test(name);
+    command({ type: 'gesture', value: shouldRun ? 'run' : 'idle' });
     processQuestion(categoryPrompts[name] ?? `Tell me about ${name} for my career.`);
   };
 
@@ -126,7 +148,7 @@ function App() {
   const startVideoCall = async () => {
     setMode('companion');
     if (!API_BASE_URL) {
-      setResponse('Video Call is ready for your Tavus/backend endpoint. Add VITE_BACKEND_HTTP_URL in the deployment environment to launch a real call.');
+      setResponse('Video Call needs a configured Tavus/backend endpoint. Set VITE_BACKEND_HTTP_URL in the deployment environment to launch a real call.');
       setStatus('VIDEO CALL • BACKEND ENDPOINT NOT CONFIGURED');
       return;
     }
@@ -145,11 +167,11 @@ function App() {
 
   return <main className="neeraj-screen">
     <canvas ref={ref} className="hologram-canvas" /><div className="screen-grid" />
-    <header className="neeraj-header"><div className="brand-lockup"><div className="brand-orb">N</div><div><div className="brand-name">NEERAJ <span>AI</span></div><div className="brand-line">Career. Growth. Global.</div></div></div><div className="system-pill"><i /> ONLINE <b>│</b> WEBGPU <b>│</b> TYPEGPU <b>│</b> REACT</div></header>
+    <header className="neeraj-header"><div className="brand-lockup"><div className="brand-orb">N</div><div><div className="brand-name">NEERAJ <span>AI</span></div><div className="brand-line">Career. Growth. Global.</div></div></div><div className="system-pill"><i /> WEBGL STABLE <b>│</b> TYPEGPU <b>│</b> REACT</div></header>
     <section className="hero-grid">
       <aside className="left-rail">
-        <div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>Navigate career decisions with clarity, skills, opportunities and strategy — now with instant local fallback actions even when the AI brain is offline.</p><button onClick={() => { setMode('companion'); setStatus('READY • ASK NEERAJ ANYTHING'); chatInputRef.current?.focus(); }}>Ask me anything →</button></div>
-        {['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <button className="feature-row" key={a} onClick={() => activateCategory(a)} aria-label={`Open ${a}`}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></button>; })}
+        <div className="speech-card"><div className="eyebrow">AI CAREER COMPANION</div><h2>Hi, I'm Neeraj!</h2><strong>Your AI Career Companion.</strong><p>Navigate career decisions with clarity, skills, opportunities and strategy — with local fallback actions when the AI brain is offline.</p><button type="button" onClick={() => { setMode('companion'); setStatus('READY • ASK NEERAJ ANYTHING'); chatInputRef.current?.focus(); }}>Ask me anything →</button></div>
+        {['Career Guidance|Plan • Pivot • Progress','Global Opportunities|75+ Countries','Resume & LinkedIn|Optimize • Stand Out','Interview Prep|Practice • Succeed','Market Insights|Trends • Skills • Roles'].map((x) => { const [a,b]=x.split('|'); return <button type="button" className={`feature-row ${activeCategory === a ? 'active' : ''}`} key={a} onClick={() => void activateCategory(a)} aria-label={`Open ${a}`}><span>{a.slice(0,1)}</span><div><b>{a}</b><small>{b}</small></div></button>; })}
       </aside>
       <section className="avatar-stage">
         <div className="stage-label"><span>●</span> {liveRoom?.conversation_url ? 'LIVE VIDEO CALL • NEERAJ AI' : 'LIVE 3D AI CAREER COMPANION'}</div>
@@ -158,12 +180,12 @@ function App() {
         <div className="conversation">{mode === 'profile' && <div className="profile-mode-card"><b>NEERAJ PROFILE</b><span>Career strategist • Global professional network</span></div>}{response && <div className="response">{response}</div>}{transcript && <div className="transcript">YOU: {transcript}</div>}</div>
       </section>
       <aside className="right-rail">
-        <button className="map-card focus-button" onClick={() => activateCategory('Global Opportunities')} aria-label="Explore global opportunities"><div className="eyebrow">GLOBAL REACH</div><strong>75+<small>Countries</small></strong><div className="map-lines">✦　◌　✧　◌　✦</div></button>
-        <div className="dual-card"><div><div className="eyebrow">FOCUS AREAS</div>{['Technology','FinTech','Healthcare','Energy & Power','Telecom','Startups','MNCs'].map((name) => <button className="focus-button" key={name} onClick={() => activateCategory(name)}>◈ {name}</button>)}</div><button className="quote focus-button" onClick={() => processQuestion('Give me career advice inspired by the idea that success is about growing through the journey, not only reaching the destination.')}>“Success is not just about reaching the destination, but growing in the journey.”<em>— Neeraj</em></button></div>
-        <div className="approach"><div className="eyebrow">MY APPROACH</div><div className="approach-grid">{['Empathetic','Strategic','Data-Driven','People First'].map((name) => <button className="approach-button" key={name} onClick={() => activateCategory(name)}><span>{name === 'Empathetic' ? '♡' : name === 'Strategic' ? '♧' : name === 'Data-Driven' ? '▥' : '♙'}<small>{name}</small></span></button>)}</div></div>
+        <button type="button" className="map-card focus-button" onClick={() => void activateCategory('Global Opportunities')} aria-label="Explore global opportunities"><div className="eyebrow">GLOBAL REACH</div><strong>75+<small>Countries</small></strong><div className="map-lines">✦　◌　✧　◌　✦</div></button>
+        <div className="dual-card"><div><div className="eyebrow">FOCUS AREAS</div>{['Technology','FinTech','Healthcare','Energy & Power','Telecom','Startups','MNCs'].map((name) => <button type="button" className={`focus-button ${activeCategory === name ? 'active' : ''}`} key={name} onClick={() => void activateCategory(name)}>◈ {name}</button>)}</div><button type="button" className="quote focus-button" onClick={() => processQuestion('Give me career advice inspired by the idea that success is about growing through the journey, not only reaching the destination.')}>“Success is not just about reaching the destination, but growing in the journey.”<em>— Neeraj</em></button></div>
+        <div className="approach"><div className="eyebrow">MY APPROACH</div><div className="approach-grid">{['Empathetic','Strategic','Data-Driven','People First'].map((name) => <button type="button" className={`approach-button ${activeCategory === name ? 'active' : ''}`} key={name} onClick={() => void activateCategory(name)}><span>{name === 'Empathetic' ? '♡' : name === 'Strategic' ? '♧' : name === 'Data-Driven' ? '▥' : '♙'}<small>{name}</small></span></button>)}</div></div>
       </aside>
     </section>
-    <section className="control-deck"><div className="mode-switch"><button className={mode === 'companion' ? 'active' : ''} onClick={() => { setMode('companion'); setStatus('READY • 3D NEERAJ AVATAR'); }}>3D AVATAR</button><button className={mode === 'profile' ? 'active' : ''} onClick={activateProfile}>PROFILE</button></div><div className="chat-input"><span>◌</span><input ref={chatInputRef} placeholder="Type to Chat with Neeraj" onKeyDown={(e) => { if (e.key==='Enter') { processQuestion(e.currentTarget.value); e.currentTarget.value=''; } }} /><button onClick={toggleVoice} aria-label={listening ? 'Stop voice input' : 'Start voice input'}>{listening ? 'STOP' : '🎙'}</button></div><select aria-label="Conversation language" value={language} onChange={(e) => { setLanguage(e.target.value); setStatus(`LANGUAGE READY • ${e.target.options[e.target.selectedIndex].text}`); }}><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option><option value="bn-IN">বাংলা</option><option value="mr-IN">मराठी</option></select><button className="call-button" disabled={startingCall} onClick={startVideoCall}>{startingCall ? 'CONNECTING…' : 'VIDEO CALL'}</button>{liveRoom?.conversation_url && <button className="stop-button" onClick={() => { setLiveRoom(null); setStatus('VIDEO CALL ENDED • 3D NEERAJ AI READY'); }}>END CALL</button>}{speaking && <button className="stop-button" onClick={stopSpeaking}>STOP VOICE</button>}</section>
+    <section className="control-deck"><div className="mode-switch"><button type="button" className={mode === 'companion' ? 'active' : ''} onClick={() => { setMode('companion'); setStatus('READY • 3D NEERAJ AVATAR'); }}>3D AVATAR</button><button type="button" className={mode === 'profile' ? 'active' : ''} onClick={activateProfile}>PROFILE</button></div><div className="chat-input"><span>◌</span><input ref={chatInputRef} placeholder="Type to Chat with Neeraj" onKeyDown={(e) => { if (e.key==='Enter') { processQuestion(e.currentTarget.value); e.currentTarget.value=''; } }} /><button type="button" onClick={toggleVoice} aria-label={listening ? 'Stop voice input' : 'Start voice input'}>{listening ? 'STOP' : '🎙'}</button></div><select aria-label="Conversation language" value={language} onChange={(e) => { setLanguage(e.target.value); setStatus(`LANGUAGE READY • ${e.target.options[e.target.selectedIndex].text}`); }}><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option><option value="bn-IN">বাংলা</option><option value="mr-IN">मराठी</option></select><button type="button" className="call-button" disabled={startingCall} onClick={startVideoCall}>{startingCall ? 'CONNECTING…' : 'VIDEO CALL'}</button>{liveRoom?.conversation_url && <button type="button" className="stop-button" onClick={() => { setLiveRoom(null); setStatus('VIDEO CALL ENDED • 3D NEERAJ AI READY'); }}>END CALL</button>}{speaking && <button type="button" className="stop-button" onClick={stopSpeaking}>STOP VOICE</button>}</section>
     <footer className="neeraj-footer"><span>AI CAREER INTELLIGENCE</span><span>VOICE • FACE • EXPRESSION • BODY • BRAIN • MULTILINGUAL</span><span>HOLOGRAM SYSTEM v3.2</span></footer><div className="ai-disclosure">AI representation of Neeraj Kapil • generated responses are not statements made by the physical Neeraj.</div>
   </main>;
 }
