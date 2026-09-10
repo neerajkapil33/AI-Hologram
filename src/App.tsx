@@ -28,7 +28,7 @@ const categoryPrompts: Record<string, string> = {
   Empathetic: 'Use an empathetic, people-first approach while coaching me through my career question.',
   Strategic: 'Give me a strategic, structured approach to my career question.',
   'Data-Driven': 'Use a data-driven approach to help me make a better career decision.',
-  'People First': 'Focus on people, leadership, communication, and sustainable career growth in your advice.',
+  'People First': 'Focus on people, leadership, communication, and sustainable career growth in your career advice.',
 };
 
 const localCareerReply = (question: string) => {
@@ -186,7 +186,7 @@ function App() {
       </aside>
     </section>
     <section className="control-deck"><div className="mode-switch"><button type="button" className={mode === 'companion' ? 'active' : ''} onClick={() => { setMode('companion'); setStatus('READY • 3D NEERAJ AVATAR'); }}>3D AVATAR</button><button type="button" className={mode === 'profile' ? 'active' : ''} onClick={activateProfile}>PROFILE</button></div><div className="chat-input"><span>◌</span><input ref={chatInputRef} placeholder="Type to Chat with Neeraj" onKeyDown={(e) => { if (e.key==='Enter') { processQuestion(e.currentTarget.value); e.currentTarget.value=''; } }} /><button type="button" onClick={toggleVoice} aria-label={listening ? 'Stop voice input' : 'Start voice input'}>{listening ? 'STOP' : '🎙'}</button></div><select aria-label="Conversation language" value={language} onChange={(e) => { setLanguage(e.target.value); setStatus(`LANGUAGE READY • ${e.target.options[e.target.selectedIndex].text}`); }}><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option><option value="bn-IN">বাংলা</option><option value="mr-IN">मराठी</option></select><button type="button" className="call-button" disabled={startingCall} onClick={startVideoCall}>{startingCall ? 'CONNECTING…' : 'VIDEO CALL'}</button>{liveRoom?.conversation_url && <button type="button" className="stop-button" onClick={() => { setLiveRoom(null); setStatus('VIDEO CALL ENDED • 3D NEERAJ AI READY'); }}>END CALL</button>}{speaking && <button type="button" className="stop-button" onClick={stopSpeaking}>STOP VOICE</button>}</section>
-    <footer className="neeraj-footer"><span>AI CAREER INTELLIGENCE</span><span>VOICE • FACE • EXPRESSION • BODY • BRAIN • MULTILINGUAL</span><span>HOLOGRAM SYSTEM v3.2</span></footer><div className="ai-disclosure">AI representation of Neeraj Kapil • generated responses are not statements made by the physical Neeraj.</div>
+    <footer className="neeraj-footer"><span>AI CAREER INTELLIGENCE</span><span>VOICE • FACE • EXPRESSION • BODY • BRAIN • MULTILINGUAL</span><span>HOLOGRAM SYSTEM v3.2</span></footer>
   </main>;
 }
 export default App;
