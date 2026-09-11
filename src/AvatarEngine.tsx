@@ -109,8 +109,9 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         const materials = Array.isArray(obj.material) ? obj.material : [obj.material]; materials.forEach((material: any) => { if (material) { material.visible = true; material.needsUpdate = true; } });
         if (obj.morphTargetDictionary) { const keys = Object.keys(obj.morphTargetDictionary); morphDiagnostics.push(`${obj.name || 'unnamed'}: ${keys.join(', ')}`); console.info(`[MESH DIAGNOSTIC] Target keys found for ${obj.name || 'unnamed'}:`, keys); }
       });
+      const getRigName = (joint: THREE.Object3D | null) => joint?.name;
       console.info('[AVATAR DIAGNOSTIC] Loaded source:', source, 'animations:', loaded.animations.map((clip) => clip.name));
-      console.info('[RIG DIAGNOSTIC] head:', jointHeadRef.current?.name, 'neck:', jointNeckRef.current?.name, 'chest:', jointChestRef.current?.name, 'hips:', jointHipsRef.current?.name, 'spine baseline:', baseSpineRot.current.toArray());
+      console.info('[RIG DIAGNOSTIC] head:', getRigName(jointHeadRef.current), 'neck:', getRigName(jointNeckRef.current), 'chest:', getRigName(jointChestRef.current), 'hips:', getRigName(jointHipsRef.current), 'spine baseline:', baseSpineRot.current.toArray());
       avatarRoot.add(model); frameModel(model); mouthTargets = findTargetMorphs(model, 'mouthOpen'); jawTargets = findTargetMorphs(model, 'jawOpen'); microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
       if (loaded.animations.length) { mixer = new THREE.AnimationMixer(model); loaded.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip))); console.info('[ANIMATION DIAGNOSTIC] Clip names:', [...actions.keys()]); crossfade(findAction([/idle/i, /breath/i, /stand/i, /rest/i, /standing/i]) ?? [...actions.values()][0], 0); }
       const sourceLabel = source === AVATAR_SOURCE ? 'REAL NEERAJ 3D READY' : 'GLTF FALLBACK READY';
@@ -125,7 +126,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     loadAvatarOnce(AVATAR_SOURCE).then((loaded) => prepareModel(loaded, AVATAR_SOURCE)).catch((error) => {
       if (disposed) return;
       console.error('Neeraj production GLB load error', error); statusRef.current?.('PRODUCTION GLB LOAD ERROR • TRYING GLTF SOURCE');
-      loadAvatarOnce(AVATAR_FALLBACK_SOURCE).then((loaded) => prepareModel(loaded, AVATAR_FALLBACK_SOURCE)).catch((fallbackError) => { if (disposed) return; console.error('Neeraj GLTF fallback load error', fallbackError); statusRef.current?.('3D MODEL LOAD ERROR • CHECK /avatar/avatar.glb'); });
+      loadAvatarOnce(AVATAR_FALLBACK_SOURCE).then((loaded) => prepareModel(loaded, AVATAR_FALLBACK_SOURCE)).catch((fallbackError) => { if (!disposed) { console.error('Neeraj GLTF fallback load error', fallbackError); statusRef.current?.('3D MODEL LOAD ERROR • CHECK /avatar/avatar.glb'); } });
     });
 
     const command = (cmd: AvatarCommand) => {
