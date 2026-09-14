@@ -46,8 +46,6 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
     hasRig: hand !== null && forearm !== null && upperArm !== null,
     update(amount, time) {
       const eased = THREE.MathUtils.smoothstep(amount, 0, 1);
-      // Never enlarge or lift the whole avatar. Keep the complete head/chest/body
-      // framed exactly as in the normal state; only the arm crosses the boundary.
       if (avatarRoot) {
         avatarRoot.position.copy(baseRootPosition);
         avatarRoot.scale.setScalar(1);
@@ -58,20 +56,23 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
       const upperArmBase = base.get(upperArm);
       if (!handBase || !forearmBase || !upperArmBase) return;
 
-      const reach = eased * (0.20 + 0.008 * Math.sin(time * 2.1));
-      const lift = eased * (0.025 + 0.006 * Math.sin(time * 2.7));
+      // Push the real rigged hand clearly toward the viewer while keeping
+      // the complete avatar at its original camera framing and size.
+      const reach = eased * (0.46 + 0.012 * Math.sin(time * 2.1));
+      const lift = eased * (0.055 + 0.008 * Math.sin(time * 2.7));
       upperArm.position.copy(upperArmBase.position);
       upperArm.rotation.copy(upperArmBase.rotation);
-      upperArm.rotation.z += THREE.MathUtils.lerp(0, -0.09, eased);
-      upperArm.rotation.y += THREE.MathUtils.lerp(0, -0.04, eased);
+      upperArm.rotation.z += THREE.MathUtils.lerp(0, -0.22, eased);
+      upperArm.rotation.y += THREE.MathUtils.lerp(0, -0.08, eased);
       forearm.position.copy(forearmBase.position);
       forearm.rotation.copy(forearmBase.rotation);
-      forearm.rotation.z += THREE.MathUtils.lerp(0, -0.055, eased);
-      forearm.rotation.x += THREE.MathUtils.lerp(0, -0.04, eased);
-      forearm.position.z += reach * 0.12;
+      forearm.rotation.z += THREE.MathUtils.lerp(0, -0.12, eased);
+      forearm.rotation.x += THREE.MathUtils.lerp(0, -0.10, eased);
+      forearm.position.z += reach * 0.18;
       hand.position.copy(handBase.position);
       hand.rotation.copy(handBase.rotation);
-      hand.rotation.z += THREE.MathUtils.lerp(0, -0.07, eased) + Math.sin(time * 4.2) * 0.012 * eased;
+      hand.rotation.z += THREE.MathUtils.lerp(0, -0.14, eased) + Math.sin(time * 4.2) * 0.018 * eased;
+      hand.rotation.y += THREE.MathUtils.lerp(0, 0.10, eased);
       hand.position.z += reach;
       hand.position.y += lift;
       if (shoulder) {
@@ -79,7 +80,7 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
         if (shoulderBase) {
           shoulder.position.copy(shoulderBase.position);
           shoulder.rotation.copy(shoulderBase.rotation);
-          shoulder.rotation.z += THREE.MathUtils.lerp(0, -0.02, eased);
+          shoulder.rotation.z += THREE.MathUtils.lerp(0, -0.045, eased);
         }
       }
     },
