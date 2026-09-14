@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 // oxlint-disable-next-line import/no-unassigned-import -- responsive layout overrides
 import './responsive.css';
+// oxlint-disable-next-line import/no-unassigned-import -- App wrapper is layout-only; AvatarEngine owns the visual frame
+import './avatar-cleanup.css';
 import App from './App.tsx';
 
 createRoot(document.getElementById('root') as HTMLElement).render(
