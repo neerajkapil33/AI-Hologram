@@ -9,13 +9,15 @@ const aliases = {
   shoulder: ['shoulder', 'rightshoulder', 'mixamorigrightshoulder', 'shoulder_r'],
 };
 
-const findBone = (root: THREE.Object3D, names: string[]) => {
+type BoneState = { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 };
+
+const findBone = (root: THREE.Object3D, names: string[]): THREE.Bone | null => {
   const wanted = names.map(normalize);
   let result: THREE.Bone | null = null;
   root.traverse((node) => {
     if (result || !(node as THREE.Bone).isBone) return;
-    const n = normalize(node.name);
-    if (wanted.some((alias) => n === alias || n.includes(alias))) result = node as THREE.Bone;
+    const name = normalize(node.name);
+    if (wanted.some((alias) => name === alias || name.includes(alias))) result = node as THREE.Bone;
   });
   return result;
 };
@@ -39,16 +41,23 @@ const addDepthBoundary = (stage: THREE.Object3D) => {
 };
 
 export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBreakout => {
-  const hand = findBone(root, aliases.hand);
-  const forearm = findBone(root, aliases.forearm);
-  const upperArm = findBone(root, aliases.upperArm);
-  const shoulder = findBone(root, aliases.shoulder);
-  const bones: THREE.Bone[] = [shoulder, upperArm, forearm, hand].filter((bone): bone is THREE.Bone => bone !== null);
-  const base = new Map(bones.map((bone) => [bone, {
+  const hand: THREE.Bone | null = findBone(root, aliases.hand);
+  const forearm: THREE.Bone | null = findBone(root, aliases.forearm);
+  const upperArm: THREE.Bone | null = findBone(root, aliases.upperArm);
+  const shoulder: THREE.Bone | null = findBone(root, aliases.shoulder);
+
+  const bones: THREE.Bone[] = [];
+  if (shoulder) bones.push(shoulder);
+  if (upperArm) bones.push(upperArm);
+  if (forearm) bones.push(forearm);
+  if (hand) bones.push(hand);
+
+  const base = new Map<THREE.Bone, BoneState>();
+  bones.forEach((bone) => base.set(bone, {
     position: bone.position.clone(),
     rotation: bone.rotation.clone(),
     scale: bone.scale.clone(),
-  }]));
+  }));
 
   const avatarRoot = root.parent;
   const stage = avatarRoot?.parent;
@@ -56,15 +65,16 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
   const baseRootPosition = avatarRoot?.position.clone() ?? new THREE.Vector3();
 
   return {
-    hasRig: Boolean(hand && forearm && upperArm),
+    hasRig: hand !== null && forearm !== null && upperArm !== null,
     update(amount, time) {
-      if (!hand || !forearm || !upperArm) return;
+      if (hand === null || forearm === null || upperArm === null) return;
       const eased = THREE.MathUtils.smoothstep(amount, 0, 1);
       const reach = eased * (0.42 + 0.035 * Math.sin(time * 2.1));
       const lift = eased * (0.07 + 0.018 * Math.sin(time * 2.7));
-      const handBase = base.get(hand)!;
-      const forearmBase = base.get(forearm)!;
-      const upperArmBase = base.get(upperArm)!;
+      const handBase = base.get(hand);
+      const forearmBase = base.get(forearm);
+      const upperArmBase = base.get(upperArm);
+      if (!handBase || !forearmBase || !upperArmBase) return;
 
       if (avatarRoot) avatarRoot.position.z = baseRootPosition.z + THREE.MathUtils.lerp(0, 0.16, eased);
       if (mask) mask.material.depthWrite = eased > 0.01;
@@ -79,7 +89,10 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
       hand.position.y += lift;
       forearm.position.copy(forearmBase.position);
       forearm.position.z += reach * 0.25;
-      if (shoulder) shoulder.rotation.z = base.get(shoulder)!.rotation.z + THREE.MathUtils.lerp(0, -0.055, eased);
+      if (shoulder) {
+        const shoulderBase = base.get(shoulder);
+        if (shoulderBase) shoulder.rotation.z = shoulderBase.rotation.z + THREE.MathUtils.lerp(0, -0.055, eased);
+      }
     },
     dispose() {
       base.forEach(({ position, rotation, scale }, bone) => {
