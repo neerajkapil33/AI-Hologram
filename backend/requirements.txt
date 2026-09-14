@@ -6,3 +6,7 @@ anthropic>=0.60
 faster-whisper>=1.1
 python-multipart>=0.0.9
 pydantic>=2.8
+# Local cloned-voice synthesis used by Spatial Breakout
+chatterbox-tts>=0.1.2
+torch>=2.5
+torchaudio>=2.5
