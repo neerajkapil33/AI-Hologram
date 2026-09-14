@@ -28,18 +28,6 @@ export type SpatialBodyBreakout = {
   hasRig: boolean;
 };
 
-const addDepthBoundary = (stage: THREE.Object3D) => {
-  const existing = stage.getObjectByName('__SPATIAL_SCREEN_DEPTH_BOUNDARY__');
-  if (existing) return existing as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  const material = new THREE.MeshBasicMaterial({ color: 0x000000, colorWrite: false, depthWrite: true, depthTest: true, side: THREE.DoubleSide });
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.45), material);
-  plane.name = '__SPATIAL_SCREEN_DEPTH_BOUNDARY__';
-  plane.position.set(0, 1.05, 0.30);
-  plane.renderOrder = 1;
-  stage.add(plane);
-  return plane;
-};
-
 export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBreakout => {
   const hand: THREE.Bone | null = findBone(root, aliases.hand);
   const forearm: THREE.Bone | null = findBone(root, aliases.forearm);
@@ -59,11 +47,6 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
     scale: bone.scale.clone(),
   }));
 
-  const avatarRoot = root.parent;
-  const stage = avatarRoot?.parent;
-  const mask = stage ? addDepthBoundary(stage) : null;
-  const baseRootPosition = avatarRoot?.position.clone() ?? new THREE.Vector3();
-
   return {
     hasRig: hand !== null && forearm !== null && upperArm !== null,
     update(amount, time) {
@@ -76,9 +59,10 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
       const upperArmBase = base.get(upperArm);
       if (!handBase || !forearmBase || !upperArmBase) return;
 
-      if (avatarRoot) avatarRoot.position.z = baseRootPosition.z + THREE.MathUtils.lerp(0, 0.16, eased);
-      if (mask) mask.material.depthWrite = eased > 0.01;
-
+      // Do not use a full-screen depth plane here. A depth plane occluded the
+      // entire upper half of the avatar, making the head/chest disappear.
+      // The screen boundary is now represented by the visual breach layer,
+      // while the rigged hand/arm provides the real 3D depth movement.
       upperArm.rotation.z = upperArmBase.rotation.z + THREE.MathUtils.lerp(0, -0.22, eased);
       upperArm.rotation.y = upperArmBase.rotation.y + THREE.MathUtils.lerp(0, -0.10, eased);
       forearm.rotation.z = forearmBase.rotation.z + THREE.MathUtils.lerp(0, -0.14, eased);
@@ -100,12 +84,6 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
         bone.rotation.copy(rotation);
         bone.scale.copy(scale);
       });
-      if (avatarRoot) avatarRoot.position.copy(baseRootPosition);
-      if (mask) {
-        mask.parent?.remove(mask);
-        mask.geometry.dispose();
-        mask.material.dispose();
-      }
     },
   };
 };
