@@ -1,29 +1,39 @@
 import * as THREE from 'three';
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const aliases = {
-  hand: ['hand', 'handr', 'righthand', 'mixamorigrighthand', 'hand_r'],
-  forearm: ['forearm', 'lowerarm', 'rightforearm', 'mixamorigrightforearm', 'forearm_r'],
-  upperArm: ['upperarm', 'rightarm', 'mixamorigrightarm', 'upperarm_r'],
-  shoulder: ['shoulder', 'rightshoulder', 'mixamorigrightshoulder', 'shoulder_r'],
-  rightThigh: ['rightupleg', 'rightthigh', 'mixamorigrightupleg', 'thigh_r', 'rightleg'],
-  leftThigh: ['leftupleg', 'leftthigh', 'mixamorigleftupleg', 'thigh_l', 'leftleg'],
-  rightShin: ['rightleg', 'rightlowerleg', 'rightshin', 'mixamorigrightleg', 'shin_r'],
-  leftShin: ['leftleg', 'leftlowerleg', 'leftshin', 'mixamorigleftleg', 'shin_l'],
-  spine: ['spine', 'spine1', 'spine2', 'chest', 'upperchest', 'mixamorigspine2'],
+  hand: ['mixamorigrighthand', 'righthand', 'handr', 'hand_r', 'hand'],
+  forearm: ['mixamorigrightforearm', 'rightforearm', 'lowerarm_r', 'forearm_r', 'forearm', 'lowerarm'],
+  upperArm: ['mixamorigrightarm', 'rightupperarm', 'rightarm', 'upperarm_r', 'upperarm'],
+  shoulder: ['mixamorigrightshoulder', 'rightshoulder', 'shoulder_r', 'shoulder'],
+  rightThigh: ['mixamorigrightupleg', 'rightupleg', 'rightupperleg', 'rightthigh', 'thigh_r'],
+  leftThigh: ['mixamorigleftupleg', 'leftupleg', 'leftupperleg', 'leftthigh', 'thigh_l'],
+  rightShin: ['mixamorigrightleg', 'rightlowerleg', 'rightshin', 'shin_r', 'rightleg'],
+  leftShin: ['mixamorigleftleg', 'leftlowerleg', 'leftshin', 'shin_l', 'leftleg'],
+  spine: ['mixamorigspine2', 'mixamorigspine1', 'mixamorigspine', 'upperchest', 'chest', 'spine2', 'spine1', 'spine'],
 };
 
 type BoneState = { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 };
 
 const findBone = (root: THREE.Object3D, names: string[]): THREE.Bone | null => {
   const wanted = names.map(normalize);
-  let result: THREE.Bone | null = null;
+  const bones: THREE.Bone[] = [];
   root.traverse(node => {
-    if (result || !(node as THREE.Bone).isBone) return;
-    const name = normalize(node.name);
-    if (wanted.some(alias => name === alias || name.includes(alias))) result = node as THREE.Bone;
+    if ((node as THREE.Bone).isBone) bones.push(node as THREE.Bone);
   });
-  return result;
+  for (const alias of wanted) {
+    const exact = bones.find(bone => normalize(bone.name) === alias);
+    if (exact) return exact;
+  }
+  for (const alias of wanted) {
+    const partial = bones.find(bone => {
+      const name = normalize(bone.name);
+      return name.includes(alias) || alias.includes(name);
+    });
+    if (partial) return partial;
+  }
+  return null;
 };
 
 export type SpatialBodyBreakout = {
@@ -56,6 +66,7 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
   const avatarRoot = root.parent;
   const baseRootPosition = avatarRoot?.position.clone() ?? new THREE.Vector3();
   const baseRootRotation = avatarRoot?.rotation.clone() ?? new THREE.Euler();
+  const baseRootScale = avatarRoot?.scale.clone() ?? new THREE.Vector3(1, 1, 1);
   let startedAt = -1;
 
   const restoreBone = (bone: THREE.Bone | null) => {
@@ -76,80 +87,80 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
         if (avatarRoot) {
           avatarRoot.position.copy(baseRootPosition);
           avatarRoot.rotation.copy(baseRootRotation);
-          avatarRoot.scale.setScalar(1);
+          avatarRoot.scale.copy(baseRootScale);
         }
         return;
       }
 
       if (startedAt < 0) startedAt = time;
       const elapsed = time - startedAt;
-      const walkProgress = THREE.MathUtils.clamp(elapsed / 1.8, 0, 1);
-      const approach = THREE.MathUtils.smootherstep(walkProgress, 0, 1);
-      const bowProgress = THREE.MathUtils.clamp((elapsed - 1.75) / 0.62, 0, 1);
-      const bow = Math.sin(Math.PI * bowProgress);
-      const handshakeProgress = THREE.MathUtils.clamp((elapsed - 2.28) / 0.72, 0, 1);
-      const reach = THREE.MathUtils.smootherstep(handshakeProgress, 0, 1);
-      const handshake = elapsed > 3 ? Math.min((elapsed - 3) / 0.9, 1) : 0;
 
+      // Keep the original model framing and size. Spatial mode only changes
+      // position/rig pose; it never normalizes or enlarges the avatar root.
       if (avatarRoot) {
         avatarRoot.position.copy(baseRootPosition);
-        avatarRoot.position.z += THREE.MathUtils.lerp(0, 0.52, approach);
-        avatarRoot.position.y += Math.sin(Math.PI * approach) * 0.008;
+        avatarRoot.scale.copy(baseRootScale);
         avatarRoot.rotation.copy(baseRootRotation);
-        avatarRoot.rotation.x -= bow * 0.13;
-        avatarRoot.scale.setScalar(1);
       }
-
       bones.forEach(restoreBone);
 
-      // Natural walking gait while the real rig moves toward the viewer.
-      const gait = Math.sin(elapsed * 9.0) * approach;
-      if (rightThigh) rightThigh.rotation.x += gait * 0.34;
-      if (leftThigh) leftThigh.rotation.x -= gait * 0.34;
-      if (rightShin) rightShin.rotation.x += Math.max(0, -gait) * 0.28;
-      if (leftShin) leftShin.rotation.x += Math.max(0, gait) * 0.28;
-      if (shoulder) shoulder.rotation.z -= gait * 0.035;
+      // Phase 1: walk toward the viewer. The whole rig advances while the
+      // actual leg bones provide a visible alternating gait.
+      const walk = THREE.MathUtils.smootherstep(THREE.MathUtils.clamp(elapsed / 1.9, 0, 1), 0, 1);
+      const gait = Math.sin(elapsed * 9.2) * walk;
+      if (avatarRoot) avatarRoot.position.z += THREE.MathUtils.lerp(0, 0.58, walk);
+      if (rightThigh) rightThigh.rotation.x += gait * 0.30;
+      if (leftThigh) leftThigh.rotation.x -= gait * 0.30;
+      if (rightShin) rightShin.rotation.x += Math.max(0, -gait) * 0.22;
+      if (leftShin) leftShin.rotation.x += Math.max(0, gait) * 0.22;
+      if (shoulder) shoulder.rotation.z -= gait * 0.025;
 
-      // A small torso bow, then return upright before the handshake.
-      if (spine) {
-        spine.rotation.x -= bow * 0.12;
-      }
+      // Phase 2: stop, then bow politely from the torso toward the viewer.
+      const bow = Math.sin(Math.PI * THREE.MathUtils.clamp((elapsed - 1.95) / 0.72, 0, 1));
+      if (spine) spine.rotation.x += bow * 0.16;
+      if (avatarRoot) avatarRoot.rotation.x += bow * 0.035;
 
-      if (hand && forearm && upperArm) {
-        const hb = base.get(hand)!;
-        const fb = base.get(forearm)!;
-        const ub = base.get(upperArm)!;
-
-        // Keep the arm relaxed during the walk, then bring the real right arm forward.
-        upperArm.position.copy(ub.position);
-        upperArm.rotation.copy(ub.rotation);
+      // Phase 3: return upright and extend the real right arm straight toward
+      // the camera. All motion is applied to the existing skeleton.
+      const reach = THREE.MathUtils.smootherstep(THREE.MathUtils.clamp((elapsed - 2.62) / 0.82, 0, 1), 0, 1);
+      if (shoulder) shoulder.rotation.x -= reach * 0.12;
+      if (upperArm) {
+        upperArm.rotation.copy(base.get(upperArm)!.rotation);
         upperArm.rotation.z -= reach * 0.22;
         upperArm.rotation.y -= reach * 0.10;
-        forearm.position.copy(fb.position);
-        forearm.rotation.copy(fb.rotation);
-        forearm.rotation.z -= reach * 0.13;
-        forearm.rotation.x -= reach * 0.10;
-        forearm.position.z += reach * 0.10;
-
-        hand.position.copy(hb.position);
-        hand.rotation.copy(hb.rotation);
-        hand.position.z += reach * 0.42;
-        hand.position.y += reach * 0.045;
-        hand.rotation.z -= reach * 0.12;
-        hand.rotation.y += reach * 0.08;
-
-        // Handshake = controlled forward/back pump, never a side-to-side wave.
-        const pump = handshake * Math.sin((elapsed - 3) * 9.0) * 0.045;
-        hand.position.z += pump;
-        forearm.position.z += pump * 0.45;
+        upperArm.rotation.x -= reach * 0.08;
       }
+      if (forearm) {
+        forearm.rotation.copy(base.get(forearm)!.rotation);
+        forearm.rotation.x -= reach * 0.22;
+        forearm.rotation.z -= reach * 0.08;
+      }
+      if (hand) {
+        hand.position.copy(base.get(hand)!.position);
+        // In a Mixamo-style rig, local +Z is the useful forward depth axis for
+        // this avatar. The forearm/upper-arm rotations create the real reach;
+        // this additional translation makes the hand visibly leave the torso.
+        hand.position.z += reach * 0.34;
+        hand.position.y += reach * 0.035;
+        hand.rotation.copy(base.get(hand)!.rotation);
+        hand.rotation.x -= reach * 0.04;
+      }
+
+      // Phase 4: handshake is a compact forward/back pump, never a lateral wave.
+      const handshakeStart = 3.48;
+      const handshake = elapsed > handshakeStart
+        ? THREE.MathUtils.clamp((elapsed - handshakeStart) / 0.35, 0, 1)
+        : 0;
+      const pump = Math.sin((elapsed - handshakeStart) * 10) * 0.045 * handshake;
+      if (hand) hand.position.z += pump;
+      if (forearm) forearm.rotation.x -= pump * 0.55;
     },
     dispose() {
       bones.forEach(restoreBone);
       if (avatarRoot) {
         avatarRoot.position.copy(baseRootPosition);
         avatarRoot.rotation.copy(baseRootRotation);
-        avatarRoot.scale.setScalar(1);
+        avatarRoot.scale.copy(baseRootScale);
       }
     },
   };
