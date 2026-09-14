@@ -12,7 +12,7 @@ type Props = { onStatus?: (status: string) => void; onApi?: (api: { command: (cm
 type BoneMap = Record<string, THREE.Bone[]>;
 type Morph = { mesh: THREE.Mesh; index: number; name: string };
 
-const SRC = `${import.meta.env.BASE_URL}profile/avatar.fbx`;
+const SRC = `${import.meta.env.BASE_URL}rerun-avatar.fbx`;
 const norm = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
 
 function findBones(root: THREE.Object3D): BoneMap {
@@ -90,15 +90,16 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, value, alpha);
     });
 
-    const playNative = (patterns: RegExp[], loop: boolean) => {
+    const playNative = (patterns: RegExp[], loop: boolean, fallbackFirst = false) => {
       if (!mixer || !model) return false;
-      const clip = model.animations.find((c) => patterns.some((p) => p.test(norm(c.name))));
+      const clip = model.animations.find((c) => patterns.some((p) => p.test(norm(c.name)))) ?? (fallbackFirst ? model.animations[0] : undefined);
       if (!clip) return false;
       const action = mixer.clipAction(clip);
       action.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
       action.clampWhenFinished = !loop;
-      if (activeAction && activeAction !== action) activeAction.crossFadeTo(action, 0.15, true);
-      action.play(); activeAction = action;
+      if (activeAction && activeAction !== action) activeAction.crossFadeTo(action, 0.2, true);
+      action.play();
+      activeAction = action;
       return true;
     };
 
@@ -121,6 +122,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       if (gesture === 'wave') playNative([/wave|greet|salute/], false);
       if (gesture === 'walk') playNative([/walk|locomotion|run/], true);
       if (gesture === 'handshake') playNative([/handshake|shake/], false);
+      if (gesture === 'idle') playNative([/idle|stand|breath|rest|neutral/], true, true);
       setStatus(`3D AVATAR • ${gesture.toUpperCase()}`);
     };
 
@@ -135,7 +137,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       if (cmd.type === 'expression') {
         const v = cmd.value.toLowerCase();
         if (/speaking|talk/.test(v)) speaking = true;
-        if (/neutral|rest|stop/.test(v)) { speaking = false; expression = 'neutral'; }
+        if (/neutral|rest|stop/.test(v)) { speaking = false; expression = 'neutral'; playNative([/idle|stand|breath|rest|neutral/], true, true); }
         if (/smile|happy|warm|positive|confident/.test(v)) expression = 'smile';
         if (/sad/.test(v)) expression = 'sad';
         return;
@@ -143,6 +145,7 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       runGesture(cmd.value);
     };
     apiRef.current = { command };
+    onApi?.({ command });
 
     loader.load(SRC, (loaded) => {
       if (disposed) return;
@@ -167,15 +170,14 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       loaded.position.set(-center.x, -box.min.y, -center.z);
       loaded.updateMatrixWorld(true);
       const finalHeight = Math.max(new THREE.Box3().setFromObject(loaded).getSize(new THREE.Vector3()).y, height);
-      // The previous camera distance was too close for a 32° FOV, cutting the avatar at the chest.
       camera.position.set(0, finalHeight * 0.50, finalHeight * 1.78);
       camera.lookAt(0, finalHeight * 0.50, 0);
       camera.near = Math.max(0.01, finalHeight / 1000);
       camera.far = Math.max(100, finalHeight * 10);
       camera.updateProjectionMatrix();
-      playNative([/idle|stand|breath|rest|neutral/], true);
-      setStatus(`3D AVATAR READY • FULL BODY • ${loaded.animations.length} FBX ANIMS • ${morphs.length ? 'FACE RIG' : 'BODY RIG'}`);
-    }, undefined, (err) => setStatus(`AVATAR LOAD ERROR • ${err instanceof Error ? err.message : 'CHECK avatar.fbx'}`));
+      const nativeStarted = playNative([/idle|stand|breath|rest|neutral/], true, true);
+      setStatus(`RERUN AVATAR READY • FULL BODY • ${loaded.animations.length} FBX CLIP${loaded.animations.length === 1 ? '' : 'S'} • ${nativeStarted ? 'NATIVE MOTION PLAYING' : 'NO NATIVE CLIP'}`);
+    }, undefined, (err) => setStatus(`RERUN AVATAR LOAD ERROR • ${err instanceof Error ? err.message : 'CHECK rerun-avatar.fbx'}`));
 
     const resize = () => { const w = Math.max(1, mount.clientWidth), h = Math.max(1, mount.clientHeight); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     resize();
@@ -200,9 +202,6 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const p = THREE.MathUtils.clamp(elapsed / gestureDuration, 0, 1);
       const wave = Math.sin(elapsed * 0.010);
       if (bones) {
-        // Natural baseline movement keeps the character alive without making it sluggish.
-        move(bones.spine, Math.sin(t * 1.7) * 0.014, 'x', 4, dt);
-        move(bones.neck, Math.sin(t * 0.45) * 0.018, 'y', 4, dt);
         if (gesture === 'wave') {
           move(bones.rArm, -0.95, 'z', 18, dt); move(bones.rFore, -0.25 + wave * 0.38, 'y', 20, dt); move(bones.rHand, wave * 0.30, 'z', 20, dt);
         } else if (gesture === 'point') {
@@ -219,9 +218,6 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
           move(bones.head, Math.sin(elapsed * 0.018) * 0.08, 'x', 12, dt); setMorph(morphs, 0.55 + Math.sin(elapsed * 0.015) * 0.18, 0.25);
         } else if (gesture === 'smile' || expression === 'smile') {
           setMorph(morphs, Math.max(mouth, 0.14), 0.18);
-        } else if (gesture === 'walk') {
-          const step = Math.sin(t * 7) * 0.55;
-          move(bones.lThigh, step, 'x', 20, dt); move(bones.rThigh, -step, 'x', 20, dt); move(bones.lCalf, Math.max(0, -step) * 0.45, 'x', 20, dt); move(bones.rCalf, Math.max(0, step) * 0.45, 'x', 20, dt); move(bones.lArm, -step * 0.28, 'z', 20, dt); move(bones.rArm, step * 0.28, 'z', 20, dt);
         } else if (gesture === 'eyes') {
           move(bones.lEye, Math.sin(t * 1.4) * 0.08, 'y', 10, dt); move(bones.rEye, Math.sin(t * 1.4) * 0.08, 'y', 10, dt);
         } else if (speaking) {
