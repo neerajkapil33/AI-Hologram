@@ -1,0 +1,12 @@
+/* Keep the App wrapper layout-only. AvatarEngine owns the single visible stage frame. */
+.avatar-stage > .live-avatar {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  isolation: auto !important;
+}
+.avatar-stage > .live-avatar::before,
+.avatar-stage > .live-avatar::after {
+  display: none !important;
+}
