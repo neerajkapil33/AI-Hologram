@@ -8,355 +8,107 @@ export type AvatarCommand =
   | { type: 'viseme'; value: string; weight?: number }
   | { type: 'gesture'; value: string }
   | { type: 'performance'; value: any };
-
 type AvatarApi = { command: (cmd: AvatarCommand) => void };
 type Props = { onStatus?: (status: string) => void; onApi?: (api: AvatarApi) => void };
-type MorphTarget = { mesh: THREE.Mesh; index: number };
-type BoneSet = {
-  head: THREE.Object3D[];
-  neck: THREE.Object3D[];
-  spine: THREE.Object3D[];
-  shoulders: THREE.Object3D[];
-  leftUpperArm: THREE.Object3D[];
-  leftForeArm: THREE.Object3D[];
-  rightUpperArm: THREE.Object3D[];
-  rightForeArm: THREE.Object3D[];
-  leftHand: THREE.Object3D[];
-  rightHand: THREE.Object3D[];
-  leftThigh: THREE.Object3D[];
-  rightThigh: THREE.Object3D[];
-  leftCalf: THREE.Object3D[];
-  rightCalf: THREE.Object3D[];
-};
+type Group = THREE.Object3D[];
+type Bones = { head: Group; neck: Group; spine: Group; shoulders: Group; lArm: Group; rArm: Group; lFore: Group; rFore: Group; lHand: Group; rHand: Group; lThigh: Group; rThigh: Group; lCalf: Group; rCalf: Group };
+type Morph = { mesh: THREE.Mesh; index: number };
 
-const AVATAR_SOURCE = `${import.meta.env.BASE_URL}profile/avatar.fbx`;
-const VISEME_ALIASES = [
-  'mouthOpen', 'mouth_open', 'Mouth_Open', 'openMouth', 'jawOpen', 'jaw_open',
-  'jawDrop', 'viseme_aa', 'viseme_AA', 'viseme_O_M', 'viseme_Jaw_Drop',
-];
-const normalize = (name: string) => name.replace(/[^a-z0-9]/gi, '').toLowerCase();
-const has = (name: string, ...parts: string[]) => parts.some((part) => name.includes(part));
+const SRC = `${import.meta.env.BASE_URL}profile/avatar.fbx`;
+const norm = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
+const side = (n: string, s: 'l' | 'r') => s === 'l' ? /left|lft/.test(n) || n.startsWith('l') : /right|rgt/.test(n) || n.startsWith('r');
+const emptyBones = (): Bones => ({ head: [], neck: [], spine: [], shoulders: [], lArm: [], rArm: [], lFore: [], rFore: [], lHand: [], rHand: [], lThigh: [], rThigh: [], lCalf: [], rCalf: [] });
 
-const makeBoneSet = (root: THREE.Object3D): BoneSet => {
-  const bones: BoneSet = {
-    head: [], neck: [], spine: [], shoulders: [],
-    leftUpperArm: [], leftForeArm: [], rightUpperArm: [], rightForeArm: [],
-    leftHand: [], rightHand: [], leftThigh: [], rightThigh: [],
-    leftCalf: [], rightCalf: [],
-  };
-
-  root.traverse((node) => {
-    if (!(node instanceof THREE.Bone)) return;
-    const n = normalize(node.name);
-    const left = has(n, 'left', 'lft') || /(^|[^a-z])l($|[^a-z])/.test(n);
-    const right = has(n, 'right', 'rgt') || /(^|[^a-z])r($|[^a-z])/.test(n);
-
-    if (has(n, 'head', 'headtop', 'headend') && !has(n, 'end')) bones.head.push(node);
-    else if (has(n, 'neck')) bones.neck.push(node);
-    else if (has(n, 'spine', 'chest', 'upperchest', 'abdomen')) bones.spine.push(node);
-    else if (has(n, 'shoulder', 'clavicle')) bones.shoulders.push(node);
-    else if (has(n, 'upperarm', 'arm')) {
-      if (left && !right) bones.leftUpperArm.push(node);
-      else if (right) bones.rightUpperArm.push(node);
-    } else if (has(n, 'forearm', 'lowerarm')) {
-      if (left && !right) bones.leftForeArm.push(node);
-      else if (right) bones.rightForeArm.push(node);
-    } else if (has(n, 'hand', 'wrist')) {
-      if (left && !right) bones.leftHand.push(node);
-      else if (right) bones.rightHand.push(node);
-    } else if (has(n, 'thigh', 'upleg')) {
-      if (left && !right) bones.leftThigh.push(node);
-      else if (right) bones.rightThigh.push(node);
-    } else if (has(n, 'calf', 'lowerleg', 'shin')) {
-      if (left && !right) bones.leftCalf.push(node);
-      else if (right) bones.rightCalf.push(node);
-    }
+function detectBones(root: THREE.Object3D) {
+  const b = emptyBones();
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Bone)) return;
+    const n = norm(o.name);
+    if (/head/.test(n) && !/end/.test(n)) b.head.push(o);
+    else if (/neck/.test(n)) b.neck.push(o);
+    else if (/spine|chest|abdomen|pelvis|hips/.test(n)) b.spine.push(o);
+    else if (/shoulder|clavicle/.test(n)) b.shoulders.push(o);
+    else if (/upperarm|arm/.test(n)) side(n, 'l') ? b.lArm.push(o) : side(n, 'r') && b.rArm.push(o);
+    else if (/forearm|lowerarm|elbow/.test(n)) side(n, 'l') ? b.lFore.push(o) : side(n, 'r') && b.rFore.push(o);
+    else if (/hand|wrist/.test(n)) side(n, 'l') ? b.lHand.push(o) : side(n, 'r') && b.rHand.push(o);
+    else if (/thigh|upleg/.test(n)) side(n, 'l') ? b.lThigh.push(o) : side(n, 'r') && b.rThigh.push(o);
+    else if (/calf|lowerleg|shin/.test(n)) side(n, 'l') ? b.lCalf.push(o) : side(n, 'r') && b.rCalf.push(o);
   });
-
-  return bones;
-};
-
-const allBones = (set: BoneSet) => Object.values(set).flat();
+  return b;
+}
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const statusRef = useRef(onStatus);
-  const apiRef = useRef(onApi);
+  const statusRef = useRef(onStatus); const apiRef = useRef(onApi);
+  useEffect(() => { statusRef.current = onStatus; apiRef.current = onApi; }, [onApi, onStatus]);
 
   useEffect(() => {
-    statusRef.current = onStatus;
-    apiRef.current = onApi;
-  }, [onApi, onStatus]);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
+    const mount = mountRef.current; if (!mount) return;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
-    renderer.setClearColor(0, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+    const layer = document.createElement('div'); layer.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none'; mount.appendChild(layer); layer.appendChild(renderer.domElement);
+    scene.add(new THREE.HemisphereLight(0xb9ecff, 0x07111d, 2.2)); const key = new THREE.DirectionalLight(0xffffff, 2.5); key.position.set(3, 6, 5); scene.add(key); const fill = new THREE.DirectionalLight(0x9beeff, 1.3); fill.position.set(-3, 3, 4); scene.add(fill);
+    const root = new THREE.Group(); scene.add(root); const loader = new FBXLoader();
+    let model: THREE.Object3D | null = null; let mixer: THREE.AnimationMixer | null = null; let micro: MicroExpressionEngine | null = null; let bones: Bones | null = null;
+    let active: THREE.AnimationAction | null = null; let mode = 'idle'; let strength = 0; let started = 0; let rotation = 0; let spin = 0; let speaking = false;
+    const bases = new Map<THREE.Object3D, THREE.Euler>(); const actions = new Map<string, THREE.AnimationAction>(); const morphs: Morph[] = [];
 
-    const canvasContainer = document.createElement('div');
-    canvasContainer.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none';
-    mount.appendChild(canvasContainer);
-    canvasContainer.appendChild(renderer.domElement);
+    const rotate = (o: THREE.Object3D, x: number, y: number, z: number, amount: number) => { const base = bases.get(o); if (!base) return; o.rotation.x = THREE.MathUtils.lerp(o.rotation.x, base.x + x * amount, .20); o.rotation.y = THREE.MathUtils.lerp(o.rotation.y, base.y + y * amount, .20); o.rotation.z = THREE.MathUtils.lerp(o.rotation.z, base.z + z * amount, .20); };
+    const setMouth = (v: number, a = .25) => morphs.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, v, a); });
+    const findAction = (rx: RegExp[]) => [...actions.entries()].find(([n]) => rx.some((r) => r.test(n)))?.[1] ?? null;
+    const play = (a: THREE.AnimationAction | null) => { if (!a || a === active) return; a.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).play(); active?.crossFadeTo(a, .2, true); active = a; };
 
-    scene.add(new THREE.HemisphereLight(0xb9ecff, 0x07111d, 2.2));
-    const key = new THREE.DirectionalLight(0xffffff, 2.6);
-    key.position.set(3, 6, 5);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x9beeff, 1.4);
-    fill.position.set(-3, 3, 4);
-    scene.add(fill);
-
-    const avatarRoot = new THREE.Group();
-    scene.add(avatarRoot);
-    const loader = new FBXLoader();
-
-    let model: THREE.Object3D | null = null;
-    let mixer: THREE.AnimationMixer | null = null;
-    let microExpressions: MicroExpressionEngine | null = null;
-    let bones: BoneSet | null = null;
-    let activeAction: THREE.AnimationAction | null = null;
-    let targetRotation = 0;
-    let speaking = false;
-    let gestureTarget = 0;
-    let gestureStarted = 0;
-    let gestureKind = 'none';
-    const actions = new Map<string, THREE.AnimationAction>();
-    const morphTargets: MorphTarget[] = [];
-    const baseRotations = new Map<THREE.Object3D, THREE.Euler>();
-
-    const findMorphTargets = (root: THREE.Object3D) => {
-      root.traverse((object) => {
-        if (!(object instanceof THREE.Mesh) || !object.morphTargetDictionary || !object.morphTargetInfluences) return;
-        Object.entries(object.morphTargetDictionary).forEach(([name, index]) => {
-          const n = normalize(name);
-          if (VISEME_ALIASES.some((alias) => n === normalize(alias) || n.includes(normalize(alias)))) {
-            morphTargets.push({ mesh: object, index });
-          }
-        });
-      });
-    };
-
-    const setMorphs = (targets: MorphTarget[], weight: number, alpha = 0.25) => {
-      targets.forEach(({ mesh, index }) => {
-        if (mesh.morphTargetInfluences) {
-          mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, weight, alpha);
-        }
-      });
-    };
-
-    const frameModel = (root: THREE.Object3D) => {
-      root.scale.setScalar(1);
-      root.position.set(0, 0, 0);
-      root.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(root);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const height = Math.max(size.y, 0.001);
-      root.position.set(-center.x, -box.min.y, -center.z);
-      root.updateMatrixWorld(true);
-      const distance = height * 0.60 / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, height * 0.46, Math.max(2, distance));
-      camera.lookAt(0, height * 0.46, 0);
-      camera.updateProjectionMatrix();
-      return size;
-    };
-
-    const findAction = (patterns: RegExp[]) =>
-      [...actions.entries()].find(([name]) => patterns.some((pattern) => pattern.test(name)))?.[1] ?? null;
-
-    const playAction = (action: THREE.AnimationAction | null, duration = 0.35) => {
-      if (!action || action === activeAction) return;
-      action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
-      activeAction?.crossFadeTo(action, duration, true);
-      activeAction = action;
-    };
-
-    const rotateBone = (bone: THREE.Object3D, x: number, y: number, z: number, amount: number) => {
-      const base = baseRotations.get(bone);
-      if (!base) return;
-      bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, base.x + x * amount, 0.16);
-      bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, base.y + y * amount, 0.16);
-      bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, base.z + z * amount, 0.16);
-    };
-
-    const applyBodyMotion = (time: number, dt: number) => {
-      if (!bones) return;
-      const t = time * 0.001;
-      const breath = Math.sin(t * 1.55) * 0.5 + 0.5;
-      const sway = Math.sin(t * 0.65) * 0.5 + Math.sin(t * 0.31) * 0.25;
-
-      bones.spine.forEach((bone, i) => rotateBone(bone, Math.sin(t * 1.55 + i * 0.4) * 0.012, sway * 0.018, 0, 1));
-      bones.shoulders.forEach((bone, i) => rotateBone(bone, 0, 0, Math.sin(t * 1.55 + i) * 0.025 * breath, 1));
-
-      const walkAmount = gestureKind === 'walk' || gestureKind === 'move' ? gestureTarget : 0;
-      bones.leftUpperArm.forEach((bone) => rotateBone(bone, Math.sin(t * 1.9) * 0.10 * walkAmount, 0, -0.035 * walkAmount, 1));
-      bones.rightUpperArm.forEach((bone) => rotateBone(bone, Math.sin(t * 1.9 + Math.PI) * 0.10 * walkAmount, 0, 0.035 * walkAmount, 1));
-      bones.leftThigh.forEach((bone) => rotateBone(bone, Math.sin(t * 1.9 + Math.PI) * 0.12 * walkAmount, 0, 0, 1));
-      bones.rightThigh.forEach((bone) => rotateBone(bone, Math.sin(t * 1.9) * 0.12 * walkAmount, 0, 0, 1));
-      bones.leftCalf.forEach((bone) => rotateBone(bone, Math.max(0, Math.sin(t * 1.9 + Math.PI)) * 0.10 * walkAmount, 0, 0, 1));
-      bones.rightCalf.forEach((bone) => rotateBone(bone, Math.max(0, Math.sin(t * 1.9)) * 0.10 * walkAmount, 0, 0, 1));
-
-      const elapsed = time - gestureStarted;
-      const gestureProgress = Math.min(1, elapsed / 650);
-      const ease = gestureProgress < 0.5 ? gestureProgress * 2 : 2 - gestureProgress * 2;
-      const gesture = gestureTarget * ease;
-
-      if (gestureKind === 'wave' || gestureKind === 'hand' || gestureKind === 'greet') {
-        bones.rightUpperArm.forEach((bone) => rotateBone(bone, -0.65, 0.15, -0.45, gesture));
-        bones.rightForeArm.forEach((bone) => rotateBone(bone, -0.55, 0, 0.15, gesture));
-        bones.rightHand.forEach((bone) => rotateBone(bone, 0, Math.sin(t * 7) * 0.25, 0.1, gesture));
-      } else if (gestureKind === 'point') {
-        bones.rightUpperArm.forEach((bone) => rotateBone(bone, -0.42, -0.12, -0.30, gesture));
-        bones.rightForeArm.forEach((bone) => rotateBone(bone, -0.80, 0, 0.05, gesture));
-        bones.rightHand.forEach((bone) => rotateBone(bone, -0.12, 0.12, 0, gesture));
-      } else if (gestureKind === 'open') {
-        bones.rightUpperArm.forEach((bone) => rotateBone(bone, -0.30, -0.28, -0.25, gesture));
-        bones.leftUpperArm.forEach((bone) => rotateBone(bone, -0.30, 0.28, 0.25, gesture));
-        bones.rightForeArm.forEach((bone) => rotateBone(bone, -0.22, 0, 0, gesture));
-        bones.leftForeArm.forEach((bone) => rotateBone(bone, -0.22, 0, 0, gesture));
-      } else if (gestureKind === 'nod') {
-        bones.head.forEach((bone) => rotateBone(bone, Math.sin(t * 5) * 0.18, 0, 0, gesture));
-        bones.neck.forEach((bone) => rotateBone(bone, Math.sin(t * 5) * 0.07, 0, 0, gesture));
-      } else if (gestureKind === 'shrug') {
-        bones.shoulders.forEach((bone) => rotateBone(bone, 0, 0, Math.sin(t * 6) * 0.14, gesture));
-      }
-
-      if (gestureTarget > 0) {
-        gestureTarget = Math.max(0, gestureTarget - dt * 0.0012);
-        if (gestureTarget <= 0.01) gestureKind = 'none';
-      }
+    const motion = (now: number, dt: number) => {
+      if (!bones) return; const t = now / 1000; const breathing = Math.sin(t * 1.5) * .02;
+      bones.spine.forEach((b, i) => rotate(b, breathing + Math.sin(t * 1.2 + i) * .01, Math.sin(t * .6) * .018, 0, 1));
+      bones.shoulders.forEach((b, i) => rotate(b, 0, 0, Math.sin(t * 1.5 + i) * .025, 1));
+      const continuous = /walk|full/.test(mode) ? strength : 0;
+      bones.lArm.forEach(b => rotate(b, Math.sin(t * 2) * .28 * continuous, 0, -.06 * continuous, 1)); bones.rArm.forEach(b => rotate(b, Math.sin(t * 2 + Math.PI) * .28 * continuous, 0, .06 * continuous, 1));
+      bones.lThigh.forEach(b => rotate(b, Math.sin(t * 2 + Math.PI) * .25 * continuous, 0, 0, 1)); bones.rThigh.forEach(b => rotate(b, Math.sin(t * 2) * .25 * continuous, 0, 0, 1));
+      bones.lCalf.forEach(b => rotate(b, Math.max(0, Math.sin(t * 2 + Math.PI)) * .18 * continuous, 0, 0, 1)); bones.rCalf.forEach(b => rotate(b, Math.max(0, Math.sin(t * 2)) * .18 * continuous, 0, 0, 1));
+      const pulse = /walk|full/.test(mode) ? strength : strength * Math.max(0, Math.sin(Math.min(1, (now - started) / 1200) * Math.PI));
+      if (mode === 'wave') { bones.rArm.forEach(b => rotate(b, -.95, .15, -.55, pulse)); bones.rFore.forEach(b => rotate(b, -.70, 0, .20, pulse)); bones.rHand.forEach(b => rotate(b, 0, Math.sin(t * 8) * .5, .12, pulse)); }
+      if (mode === 'point') { bones.rArm.forEach(b => rotate(b, -.48, -.18, -.34, pulse)); bones.rFore.forEach(b => rotate(b, -1.05, 0, .05, pulse)); }
+      if (mode === 'present') { bones.rArm.forEach(b => rotate(b, -.38, -.34, -.30, pulse)); bones.lArm.forEach(b => rotate(b, -.38, .34, .30, pulse)); bones.rFore.forEach(b => rotate(b, -.3, 0, 0, pulse)); bones.lFore.forEach(b => rotate(b, -.3, 0, 0, pulse)); }
+      if (mode === 'handshake') { bones.rArm.forEach(b => rotate(b, -.62, -.15, -.45, pulse)); bones.rFore.forEach(b => rotate(b, -.80, 0, .15 + Math.sin(t * 10) * .10, pulse)); bones.rHand.forEach(b => rotate(b, Math.sin(t * 10) * .08, 0, 0, pulse)); }
+      if (mode === 'nod') { bones.head.forEach(b => rotate(b, Math.sin(t * 5) * .22, 0, 0, pulse)); bones.neck.forEach(b => rotate(b, Math.sin(t * 5) * .09, 0, 0, pulse)); }
+      if (mode === 'shrug') bones.shoulders.forEach(b => rotate(b, Math.sin(t * 6) * .12, 0, Math.sin(t * 6) * .16, pulse));
+      if (mode === 'laugh') { bones.head.forEach(b => rotate(b, Math.sin(t * 8) * .08, 0, Math.sin(t * 9) * .05, pulse)); bones.spine.forEach(b => rotate(b, Math.sin(t * 8) * .04, 0, 0, pulse)); setMouth(.75, .12); }
+      if (mode === 'smile' || mode === 'happy') { bones.head.forEach(b => rotate(b, -.05, 0, 0, pulse)); }
+      if (mode === 'eyes') bones.head.forEach(b => rotate(b, Math.sin(t * 3) * .06, Math.sin(t * 4) * .11, 0, pulse));
+      if (strength > 0 && !/walk|full/.test(mode)) { strength = Math.max(0, strength - dt * .00045); if (strength === 0) mode = 'idle'; }
     };
 
     const command = (cmd: AvatarCommand) => {
-      if (cmd.type === 'performance') {
-        if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
-        const emotion = String(cmd.value?.emotion ?? '').toLowerCase();
-        if (/happy|positive|excited|warm|insight|success|confident/.test(emotion)) {
-          microExpressions?.triggerInsightSmileExpression(true);
-        }
-      }
-
-      if (cmd.type === 'expression') {
-        const value = cmd.value.toLowerCase();
-        if (/smile|happy|warm|positive|success|confident|encourag/.test(value)) microExpressions?.triggerInsightSmileExpression(true);
-        if (/neutral|rest|stop/.test(value)) microExpressions?.triggerInsightSmileExpression(false);
-      }
-
-      if (cmd.type === 'viseme') {
-        const weight = THREE.MathUtils.clamp(Number(cmd.weight ?? 0), 0, 1);
-        setMorphs(morphTargets, /silence|close|rest/i.test(cmd.value) ? 0 : Math.min(weight, 0.9), 0.35);
-      }
-
-      if (cmd.type === 'gesture') {
-        const value = cmd.value.toLowerCase();
-        targetRotation = value.includes('left') ? -0.12 : value.includes('right') ? 0.12 : 0;
-        gestureKind = /wave|hand|greet|hello/.test(value) ? 'wave'
-          : /point|indicate/.test(value) ? 'point'
-          : /open|present|explain/.test(value) ? 'open'
-          : /nod|yes/.test(value) ? 'nod'
-          : /shrug/.test(value) ? 'shrug'
-          : /walk/.test(value) ? 'walk'
-          : /move|run/.test(value) ? 'move'
-          : 'none';
-        gestureTarget = gestureKind === 'none' ? 0 : 1;
-        gestureStarted = performance.now();
-        if (/walk|run|move/.test(value)) playAction(findAction([/walk/i, /run/i, /move/i]));
-        else if (gestureKind !== 'none') playAction(findAction([/gesture/i, /wave/i, /talk/i, /idle/i, /stand/i]) ?? activeAction);
-      }
+      if (cmd.type === 'performance') { if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking; if (/happy|positive|excited|warm|success|confident/i.test(String(cmd.value?.emotion ?? ''))) micro?.triggerInsightSmileExpression(true); return; }
+      if (cmd.type === 'expression') { const v = cmd.value.toLowerCase(); if (/smile|happy|warm|positive|success|confident/.test(v)) micro?.triggerInsightSmileExpression(true); if (/neutral|rest|stop/.test(v)) micro?.triggerInsightSmileExpression(false); return; }
+      if (cmd.type === 'viseme') { setMouth(/silence|close|rest/i.test(cmd.value) ? 0 : Math.min(Number(cmd.weight ?? 0), .95), .35); return; }
+      const v = cmd.value.toLowerCase(); started = performance.now();
+      if (v === 'rotate') { spin = spin ? 0 : 1.8; return; }
+      if (v === 'clothes') { model?.traverse(o => { if (o instanceof THREE.Mesh && o.material) { const mats = Array.isArray(o.material) ? o.material : [o.material]; mats.forEach(m => { if (m) { m.color.offsetHSL(.07, 0, 0); m.needsUpdate = true; } }); } }); return; }
+      if (v === 'spatial') { rotation += Math.PI * .35; mode = 'full-body'; strength = 1; return; }
+      if (v === 'smile' || v === 'laugh' || v === 'happy') micro?.triggerInsightSmileExpression(true);
+      mode = /wave/.test(v) ? 'wave' : /point/.test(v) ? 'point' : /present|open-hand/.test(v) ? 'present' : /handshake/.test(v) ? 'handshake' : /nod/.test(v) ? 'nod' : /shrug/.test(v) ? 'shrug' : /walk/.test(v) ? 'walk' : /full-body/.test(v) ? 'full-body' : /laugh/.test(v) ? 'laugh' : /smile/.test(v) ? 'smile' : /happy/.test(v) ? 'happy' : /eyes/.test(v) ? 'eyes' : 'idle';
+      strength = mode === 'idle' ? 0 : 1;
+      if (/walk|full-body/.test(v)) play(findAction([/walk/i, /run/i, /move/i, /full/i])); else play(findAction([/gesture/i, /wave/i, /talk/i, /idle/i, /stand/i]));
     };
 
     statusRef.current?.('LOADING • NEERAJ FBX AVATAR');
+    loader.load(SRC, (fbx) => {
+      model = fbx; model.traverse(o => { if (o instanceof THREE.Mesh) { o.visible = true; o.frustumCulled = false; o.renderOrder = 2; } }); root.add(model);
+      model.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(model); const center = box.getCenter(new THREE.Vector3()); const size = box.getSize(new THREE.Vector3()); const h = Math.max(size.y, .001); model.position.set(-center.x, -box.min.y, -center.z); camera.position.set(0, h * .46, Math.max(2, h * .60 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)))); camera.lookAt(0, h * .46, 0);
+      bones = detectBones(model); Object.values(bones).flat().forEach(b => bases.set(b, b.rotation.clone()));
+      model.traverse(o => { if (!(o instanceof THREE.Mesh) || !o.morphTargetDictionary || !o.morphTargetInfluences) return; Object.entries(o.morphTargetDictionary).forEach(([n, index]) => { const x = norm(n); if (/mouthopen|jawopen|jawdrop|visemeaa|visemeo/.test(x)) morphs.push({ mesh: o, index }); }); });
+      micro = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
+      mixer = fbx.animations?.length ? new THREE.AnimationMixer(model) : null; fbx.animations?.forEach(c => actions.set(c.name.toLowerCase(), mixer!.clipAction(c))); play(findAction([/idle/i, /stand/i, /breath/i, /rest/i]));
+      apiRef.current?.({ command }); const groups = Object.values(bones).filter(g => g.length).length; statusRef.current?.(`ONLINE • ${groups} BODY GROUPS • AVATAR CONTROLS READY`);
+    }, undefined, (e) => { console.error(e); statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/avatar.fbx'); });
 
-    loader.load(
-      AVATAR_SOURCE,
-      (fbx) => {
-        model = fbx;
-        model.traverse((object) => {
-          if (!(object instanceof THREE.Mesh)) return;
-          object.visible = true;
-          object.frustumCulled = false;
-          object.renderOrder = 2;
-          const materials = Array.isArray(object.material) ? object.material : [object.material];
-          materials.forEach((material) => { if (material) { material.visible = true; material.needsUpdate = true; } });
-        });
-
-        avatarRoot.add(model);
-        const size = frameModel(model);
-        bones = makeBoneSet(model);
-        allBones(bones).forEach((bone) => baseRotations.set(bone, bone.rotation.clone()));
-        findMorphTargets(model);
-        microExpressions = createMicroExpressionEngine(model, { isSpeaking: () => speaking });
-
-        if (fbx.animations?.length) {
-          mixer = new THREE.AnimationMixer(model);
-          fbx.animations.forEach((clip) => actions.set(clip.name.toLowerCase(), mixer!.clipAction(clip)));
-          playAction(findAction([/idle/i, /breath/i, /stand/i, /rest/i]) ?? [...actions.values()][0], 0);
-        }
-
-        apiRef.current?.({ command });
-        const bodyParts = Object.values(bones).filter((group) => group.length).length;
-        statusRef.current?.(`ONLINE • FBX BODY RIG READY • ${Math.round(size.y * 100) / 100} HEIGHT • ${bodyParts} BODY GROUPS • BLINK + FACE + LIP SYNC`);
-      },
-      (xhr) => {
-        if (xhr.total > 0) statusRef.current?.(`LOADING • NEERAJ FBX AVATAR • ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
-      },
-      (error) => {
-        console.error('Neeraj FBX load error', error);
-        statusRef.current?.('3D MODEL LOAD ERROR • CHECK /profile/avatar.fbx');
-      },
-    );
-
-    const resize = () => {
-      const width = Math.max(1, mount.clientWidth || 640);
-      const height = Math.max(1, mount.clientHeight || 640);
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(mount);
-    const clock = new THREE.Clock();
-
-    renderer.setAnimationLoop(() => {
-      const dt = Math.min(clock.getDelta(), 0.05);
-      const now = performance.now();
-      const time = now / 1000;
-
-      avatarRoot.rotation.y = THREE.MathUtils.damp(avatarRoot.rotation.y, targetRotation + Math.sin(time * 0.22) * 0.025, 4, dt);
-      mixer?.update(dt);
-      applyBodyMotion(now, dt);
-
-      if (speaking) {
-        const mouth = 0.48 + Math.max(0, Math.sin(time * 13)) * 0.30 + Math.sin(time * 29) * 0.08;
-        setMorphs(morphTargets, THREE.MathUtils.clamp(mouth, 0, 0.9), 0.32);
-      } else {
-        setMorphs(morphTargets, 0, 0.12);
-      }
-
-      microExpressions?.update(now);
-      renderer.render(scene, camera);
-    });
-
-    return () => {
-      renderer.setAnimationLoop(null);
-      observer.disconnect();
-      microExpressions?.dispose();
-      mixer?.stopAllAction();
-      if (model) avatarRoot.remove(model);
-      renderer.dispose();
-      canvasContainer.remove();
-    };
+    const resize = () => { const w = Math.max(1, mount.clientWidth || 640), h = Math.max(1, mount.clientHeight || 640); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }; resize(); const ro = new ResizeObserver(resize); ro.observe(mount); const clock = new THREE.Clock();
+    renderer.setAnimationLoop(() => { const dt = Math.min(clock.getDelta(), .05), now = performance.now(), t = now / 1000; if (spin) rotation += spin * dt; root.rotation.y = THREE.MathUtils.damp(root.rotation.y, rotation + Math.sin(t * .22) * .02, 5, dt); mixer?.update(dt); motion(now, dt); if (speaking) setMouth(.45 + Math.max(0, Math.sin(t * 13)) * .4, .3); else setMouth(0, .1); micro?.update(now); renderer.render(scene, camera); });
+    return () => { renderer.setAnimationLoop(null); ro.disconnect(); micro?.dispose(); mixer?.stopAllAction(); renderer.dispose(); layer.remove(); };
   }, []);
-
   return <div ref={mountRef} className="relative w-full h-full min-h-[500px]" />;
 }
