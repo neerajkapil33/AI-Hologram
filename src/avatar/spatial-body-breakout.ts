@@ -23,9 +23,9 @@ const findBone = (root: THREE.Object3D, names: string[]) => {
 type Controller = {
   root: THREE.Object3D;
   stage: THREE.Object3D;
-  hand: THREE.Bone | null;
-  forearm: THREE.Bone | null;
-  upperArm: THREE.Bone | null;
+  hand: THREE.Bone;
+  forearm: THREE.Bone;
+  upperArm: THREE.Bone;
   shoulder: THREE.Bone | null;
   base: Map<THREE.Bone, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>;
   mask: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -37,13 +37,7 @@ const controllers: Controller[] = [];
 const addDepthBoundary = (stage: THREE.Object3D) => {
   const existing = stage.getObjectByName('__SPATIAL_SCREEN_DEPTH_BOUNDARY__');
   if (existing) return existing as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    colorWrite: false,
-    depthWrite: true,
-    depthTest: true,
-    side: THREE.DoubleSide,
-  });
+  const material = new THREE.MeshBasicMaterial({ color: 0x000000, colorWrite: false, depthWrite: false, depthTest: true, side: THREE.DoubleSide });
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.45), material);
   plane.name = '__SPATIAL_SCREEN_DEPTH_BOUNDARY__';
   plane.position.set(0, 1.05, 0.30);
@@ -53,9 +47,8 @@ const addDepthBoundary = (stage: THREE.Object3D) => {
 };
 
 const register = (model: THREE.Object3D) => {
-  if (controllers.some((item) => item.root === model.parent)) return;
   const root = model.parent;
-  if (!root) return;
+  if (!root || controllers.some((item) => item.root === root)) return;
   const stage = root.parent;
   if (!stage) return;
   const hand = findBone(model, aliases.hand);
@@ -64,11 +57,7 @@ const register = (model: THREE.Object3D) => {
   const shoulder = findBone(model, aliases.shoulder);
   if (!hand || !forearm || !upperArm) return;
   const bones = [shoulder, upperArm, forearm, hand].filter(Boolean) as THREE.Bone[];
-  const base = new Map(bones.map((bone) => [bone, {
-    position: bone.position.clone(),
-    rotation: bone.rotation.clone(),
-    scale: bone.scale.clone(),
-  }]));
+  const base = new Map(bones.map((bone) => [bone, { position: bone.position.clone(), rotation: bone.rotation.clone(), scale: bone.scale.clone() }]));
   const mask = addDepthBoundary(stage);
   controllers.push({ root, stage, hand, forearm, upperArm, shoulder, base, mask, amount: 0 });
 };
@@ -76,10 +65,11 @@ const register = (model: THREE.Object3D) => {
 const updateController = (controller: Controller, amount: number, time: number) => {
   controller.amount = THREE.MathUtils.damp(controller.amount, amount, 5.5, 1 / 60);
   const eased = THREE.MathUtils.smoothstep(controller.amount, 0, 1);
-  const { root, hand, forearm, upperArm, shoulder, base } = controller;
+  const { root, hand, forearm, upperArm, shoulder, base, mask } = controller;
+  mask.material.depthWrite = eased > 0.01;
   if (!hand || !forearm || !upperArm) return;
 
-  // Keep the torso behind the virtual display while the hand crosses it.
+  // The torso stays behind the screen plane while the rigged hand/forearm crosses it.
   root.position.z = THREE.MathUtils.lerp(root.position.z, THREE.MathUtils.lerp(0, 0.16, eased), 0.24);
 
   const reach = eased * (0.42 + 0.035 * Math.sin(time * 2.1));
@@ -111,6 +101,7 @@ const restore = (controller: Controller) => {
     bone.rotation.copy(rotation);
     bone.scale.copy(scale);
   });
+  controller.mask.material.depthWrite = false;
 };
 
 let spatialAmount = 0;
@@ -121,19 +112,16 @@ window.addEventListener('neeraj:spatial-breakout', (event) => {
   if (!spatialTarget) controllers.forEach(restore);
 });
 
-// Register the loaded avatar without requiring a second model loader. The existing
-// AvatarEngine adds the GLTF model to avatarRoot; this hook observes that Three.js add.
+// The existing AvatarEngine loads the GLTF and adds it to avatarRoot. Observe that
+// add operation so the actual loaded skeleton is controlled; no duplicate model is loaded.
 const originalAdd = THREE.Object3D.prototype.add;
 THREE.Object3D.prototype.add = function (...objects: THREE.Object3D[]) {
   const result = originalAdd.apply(this, objects);
-  objects.forEach((object) => {
-    if (object !== this && object.traverse) register(object);
-  });
+  objects.forEach((object) => { if (object !== this) register(object); });
   return result;
 };
 
-// AnimationMixer updates animation tracks first; apply the breakout pose immediately
-// afterwards so idle/walk animation cannot overwrite the hand crossing.
+// Apply the breakout pose after animation tracks have updated the skeleton.
 const originalMixerUpdate = THREE.AnimationMixer.prototype.update;
 THREE.AnimationMixer.prototype.update = function (delta: number) {
   const result = originalMixerUpdate.call(this, delta);
