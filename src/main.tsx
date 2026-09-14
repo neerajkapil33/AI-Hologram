@@ -6,6 +6,8 @@ import './index.css';
 import './responsive.css';
 // oxlint-disable-next-line import/no-unassigned-import -- cinematic Spatial Breakout runtime
 import './spatial-breach-runtime';
+// oxlint-disable-next-line import/no-unassigned-import -- Chatterbox voice-clone bridge for the breakout introduction
+import './spatial-voice-runtime';
 // oxlint-disable-next-line import/no-unassigned-import -- hooks the loaded Three.js avatar skeleton and depth boundary
 import './avatar/spatial-body-breakout';
 import App from './App.tsx';
