@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
-
 const aliases = {
   hand: ['hand', 'handr', 'righthand', 'mixamorigrighthand', 'hand_r'],
   forearm: ['forearm', 'lowerarm', 'rightforearm', 'mixamorigrightforearm', 'forearm_r'],
@@ -10,7 +9,6 @@ const aliases = {
 };
 
 type BoneState = { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 };
-
 const findBone = (root: THREE.Object3D, names: string[]): THREE.Bone | null => {
   const wanted = names.map(normalize);
   let result: THREE.Bone | null = null;
@@ -33,7 +31,6 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
   const forearm: THREE.Bone | null = findBone(root, aliases.forearm);
   const upperArm: THREE.Bone | null = findBone(root, aliases.upperArm);
   const shoulder: THREE.Bone | null = findBone(root, aliases.shoulder);
-
   const bones: THREE.Bone[] = [];
   if (shoulder) bones.push(shoulder);
   if (upperArm) bones.push(upperArm);
@@ -41,41 +38,49 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
   if (hand) bones.push(hand);
 
   const base = new Map<THREE.Bone, BoneState>();
-  bones.forEach((bone) => base.set(bone, {
-    position: bone.position.clone(),
-    rotation: bone.rotation.clone(),
-    scale: bone.scale.clone(),
-  }));
+  bones.forEach((bone) => base.set(bone, { position: bone.position.clone(), rotation: bone.rotation.clone(), scale: bone.scale.clone() }));
+  const avatarRoot = root.parent;
+  const baseRootPosition = avatarRoot?.position.clone() ?? new THREE.Vector3();
 
   return {
     hasRig: hand !== null && forearm !== null && upperArm !== null,
     update(amount, time) {
-      if (hand === null || forearm === null || upperArm === null) return;
       const eased = THREE.MathUtils.smoothstep(amount, 0, 1);
-      const reach = eased * (0.42 + 0.035 * Math.sin(time * 2.1));
-      const lift = eased * (0.07 + 0.018 * Math.sin(time * 2.7));
+      // Never enlarge or lift the whole avatar. Keep the complete head/chest/body
+      // framed exactly as in the normal state; only the arm crosses the boundary.
+      if (avatarRoot) {
+        avatarRoot.position.copy(baseRootPosition);
+        avatarRoot.scale.setScalar(1);
+      }
+      if (hand === null || forearm === null || upperArm === null) return;
       const handBase = base.get(hand);
       const forearmBase = base.get(forearm);
       const upperArmBase = base.get(upperArm);
       if (!handBase || !forearmBase || !upperArmBase) return;
 
-      // Do not use a full-screen depth plane here. A depth plane occluded the
-      // entire upper half of the avatar, making the head/chest disappear.
-      // The screen boundary is now represented by the visual breach layer,
-      // while the rigged hand/arm provides the real 3D depth movement.
-      upperArm.rotation.z = upperArmBase.rotation.z + THREE.MathUtils.lerp(0, -0.22, eased);
-      upperArm.rotation.y = upperArmBase.rotation.y + THREE.MathUtils.lerp(0, -0.10, eased);
-      forearm.rotation.z = forearmBase.rotation.z + THREE.MathUtils.lerp(0, -0.14, eased);
-      forearm.rotation.x = forearmBase.rotation.x + THREE.MathUtils.lerp(0, -0.10, eased);
-      hand.rotation.z = handBase.rotation.z + THREE.MathUtils.lerp(0, -0.18, eased) + Math.sin(time * 4.2) * 0.03 * eased;
+      const reach = eased * (0.20 + 0.008 * Math.sin(time * 2.1));
+      const lift = eased * (0.025 + 0.006 * Math.sin(time * 2.7));
+      upperArm.position.copy(upperArmBase.position);
+      upperArm.rotation.copy(upperArmBase.rotation);
+      upperArm.rotation.z += THREE.MathUtils.lerp(0, -0.09, eased);
+      upperArm.rotation.y += THREE.MathUtils.lerp(0, -0.04, eased);
+      forearm.position.copy(forearmBase.position);
+      forearm.rotation.copy(forearmBase.rotation);
+      forearm.rotation.z += THREE.MathUtils.lerp(0, -0.055, eased);
+      forearm.rotation.x += THREE.MathUtils.lerp(0, -0.04, eased);
+      forearm.position.z += reach * 0.12;
       hand.position.copy(handBase.position);
+      hand.rotation.copy(handBase.rotation);
+      hand.rotation.z += THREE.MathUtils.lerp(0, -0.07, eased) + Math.sin(time * 4.2) * 0.012 * eased;
       hand.position.z += reach;
       hand.position.y += lift;
-      forearm.position.copy(forearmBase.position);
-      forearm.position.z += reach * 0.25;
       if (shoulder) {
         const shoulderBase = base.get(shoulder);
-        if (shoulderBase) shoulder.rotation.z = shoulderBase.rotation.z + THREE.MathUtils.lerp(0, -0.055, eased);
+        if (shoulderBase) {
+          shoulder.position.copy(shoulderBase.position);
+          shoulder.rotation.copy(shoulderBase.rotation);
+          shoulder.rotation.z += THREE.MathUtils.lerp(0, -0.02, eased);
+        }
       }
     },
     dispose() {
@@ -84,6 +89,7 @@ export const createSpatialBodyBreakout = (root: THREE.Object3D): SpatialBodyBrea
         bone.rotation.copy(rotation);
         bone.scale.copy(scale);
       });
+      if (avatarRoot) avatarRoot.position.copy(baseRootPosition);
     },
   };
 };
