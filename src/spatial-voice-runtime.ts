@@ -7,6 +7,21 @@ let originalSpeak: SpeechSynthesis['speak'] | null = null;
 let originalCancel: SpeechSynthesis['cancel'] | null = null;
 let patched = false;
 
+const asSpeechEvent = (utterance: SpeechSynthesisUtterance, type: 'start' | 'end') => {
+  const event = new Event(type) as SpeechSynthesisEvent;
+  Object.defineProperty(event, 'utterance', { value: utterance });
+  return event;
+};
+
+const asSpeechErrorEvent = (utterance: SpeechSynthesisUtterance, error: SpeechSynthesisErrorCode) => {
+  const event = new Event('error') as SpeechSynthesisErrorEvent;
+  Object.defineProperties(event, {
+    utterance: { value: utterance },
+    error: { value: error },
+  });
+  return event;
+};
+
 const stopAudio = () => {
   if (currentAudio) {
     currentAudio.pause();
@@ -39,11 +54,11 @@ const playClone = async (utterance: SpeechSynthesisUtterance) => {
     currentUrl = URL.createObjectURL(blob);
     const audio = new Audio(currentUrl);
     currentAudio = audio;
-    utterance.onstart?.(new Event('start'));
+    utterance.onstart?.(asSpeechEvent(utterance, 'start'));
     audio.onended = () => {
       if (currentAudio === audio) {
         currentAudio = null;
-        utterance.onend?.(new Event('end'));
+        utterance.onend?.(asSpeechEvent(utterance, 'end'));
       }
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl);
@@ -52,7 +67,7 @@ const playClone = async (utterance: SpeechSynthesisUtterance) => {
     };
     audio.onerror = () => {
       if (currentAudio === audio) currentAudio = null;
-      utterance.onerror?.(new SpeechSynthesisErrorEvent('error', { error: 'audio-busy' }));
+      utterance.onerror?.(asSpeechErrorEvent(utterance, 'audio-busy'));
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl);
         currentUrl = null;
@@ -61,10 +76,7 @@ const playClone = async (utterance: SpeechSynthesisUtterance) => {
     await audio.play();
   } catch (error) {
     console.error('Neeraj Chatterbox voice unavailable:', error);
-    // Do not silently substitute a different voice. The existing AvatarEngine
-    // callback will receive an error and can leave the avatar quiet instead of
-    // unexpectedly switching to robotic browser speech.
-    utterance.onerror?.(new SpeechSynthesisErrorEvent('error', { error: 'voice-unavailable' }));
+    utterance.onerror?.(asSpeechErrorEvent(utterance, 'voice-unavailable'));
   }
 };
 
