@@ -17,16 +17,18 @@ type Bones = {
   lArm: Group; rArm: Group; lFore: Group; rFore: Group;
   lHand: Group; rHand: Group; lThigh: Group; rThigh: Group;
   lCalf: Group; rCalf: Group; jaw: Group; lEye: Group; rEye: Group;
+  lLid: Group; rLid: Group; lFingers: Group; rFingers: Group;
 };
-type Morph = { mesh: THREE.Mesh; index: number };
+type Morph = { mesh: THREE.Mesh; index: number; name: string };
 
 const SRC = `${import.meta.env.BASE_URL}profile/avatar.fbx`;
 const norm = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
-const isLeft = (n: string) => /left|lft/.test(n) || /(^|armature)l(arm|forearm|hand|thigh|calf|leg|eye)/.test(n);
-const isRight = (n: string) => /right|rgt/.test(n) || /(^|armature)r(arm|forearm|hand|thigh|calf|leg|eye)/.test(n);
+const isLeft = (n: string) => /left|lft/.test(n) || /(^|armature)l(arm|forearm|hand|thigh|calf|leg|eye|lid)/.test(n);
+const isRight = (n: string) => /right|rgt/.test(n) || /(^|armature)r(arm|forearm|hand|thigh|calf|leg|eye|lid)/.test(n);
 const emptyBones = (): Bones => ({
   head: [], neck: [], spine: [], shoulders: [], lArm: [], rArm: [], lFore: [], rFore: [],
   lHand: [], rHand: [], lThigh: [], rThigh: [], lCalf: [], rCalf: [], jaw: [], lEye: [], rEye: [],
+  lLid: [], rLid: [], lFingers: [], rFingers: [],
 });
 
 function detectBones(root: THREE.Object3D) {
@@ -35,23 +37,26 @@ function detectBones(root: THREE.Object3D) {
     if (!(o instanceof THREE.Bone)) return;
     const n = norm(o.name);
     if (/jaw|mandible|lowerface/.test(n)) b.jaw.push(o);
+    else if (/eyelid|lid|upperlid|lowerlid/.test(n)) isLeft(n) ? b.lLid.push(o) : isRight(n) && b.rLid.push(o);
     else if (/head/.test(n) && !/end/.test(n)) b.head.push(o);
     else if (/neck/.test(n)) b.neck.push(o);
     else if (/spine|chest|abdomen|pelvis|hips/.test(n)) b.spine.push(o);
     else if (/shoulder|clavicle/.test(n)) b.shoulders.push(o);
-    else if (/eyelid|lid/.test(n)) return;
     else if (/eye/.test(n)) isLeft(n) ? b.lEye.push(o) : isRight(n) && b.rEye.push(o);
     else if (/upperarm|arm/.test(n)) isLeft(n) ? b.lArm.push(o) : isRight(n) && b.rArm.push(o);
     else if (/forearm|lowerarm|elbow/.test(n)) isLeft(n) ? b.lFore.push(o) : isRight(n) && b.rFore.push(o);
     else if (/hand|wrist/.test(n)) isLeft(n) ? b.lHand.push(o) : isRight(n) && b.rHand.push(o);
+    else if (/thumb|index|middle|ring|pinky|finger/.test(n)) isLeft(n) ? b.lFingers.push(o) : isRight(n) && b.rFingers.push(o);
     else if (/thigh|upleg/.test(n)) isLeft(n) ? b.lThigh.push(o) : isRight(n) && b.rThigh.push(o);
     else if (/calf|lowerleg|shin/.test(n)) isLeft(n) ? b.lCalf.push(o) : isRight(n) && b.rCalf.push(o);
   });
   return b;
 }
 
-const MOUTH_NAMES = /mouth|jaw|viseme|phoneme|lip|tongue|aa|ae|ah|ao|aw|eh|er|ih|iy|oh|ow|oy|uh|uw/i;
-const BLINK_NAMES = /blink|eyelid|eyeclose|closeeye/i;
+const MOUTH_NAMES = /mouth|viseme|phoneme|lip|tongue|jaw|aa|ae|ah|ao|aw|eh|er|ih|iy|oh|ow|oy|uh|uw/i;
+const BLINK_NAMES = /blink|eyelid|eyeclose|closeeye|lidclose/i;
+const SMILE_NAMES = /smile|happy|mouthsmile|grin/i;
+const FROWN_NAMES = /frown|sad|mouthsad/i;
 
 export default function AvatarEngine({ onStatus, onApi }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -99,58 +104,103 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
     let gestureUntil = 0;
     let gestureStarted = 0;
     let rotation = 0;
-    let spin = 0;
     let speaking = false;
     let mouthLevel = 0;
+    let targetMouth = 0;
     let lastAudioAt = 0;
     let disposed = false;
+    let walkDirection = 0;
+    let expression = 'neutral';
 
-    const bases = new Map<THREE.Object3D, THREE.Euler>();
     const actions = new Map<string, THREE.AnimationAction>();
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
+    const smileMorphs: Morph[] = [];
+    const frownMorphs: Morph[] = [];
+    const additive = new Map<THREE.Object3D, THREE.Euler>();
 
-    const rotate = (o: THREE.Object3D, x = 0, y = 0, z = 0, amount = 1, smoothing = 0.16) => {
-      const base = bases.get(o);
-      if (!base) return;
-      o.rotation.x = THREE.MathUtils.lerp(o.rotation.x, base.x + x * amount, smoothing);
-      o.rotation.y = THREE.MathUtils.lerp(o.rotation.y, base.y + y * amount, smoothing);
-      o.rotation.z = THREE.MathUtils.lerp(o.rotation.z, base.z + z * amount, smoothing);
+    const addOffset = (o: THREE.Object3D, x = 0, y = 0, z = 0, weight = 1, smoothing = 0.18) => {
+      const previous = additive.get(o) ?? new THREE.Euler();
+      const target = new THREE.Euler(x * weight, y * weight, z * weight);
+      previous.x = THREE.MathUtils.damp(previous.x, target.x, 9, smoothing);
+      previous.y = THREE.MathUtils.damp(previous.y, target.y, 9, smoothing);
+      previous.z = THREE.MathUtils.damp(previous.z, target.z, 9, smoothing);
+      additive.set(o, previous);
+      // Important: this is applied ON TOP of the native FBX pose after mixer.update().
+      o.rotation.x += previous.x;
+      o.rotation.y += previous.y;
+      o.rotation.z += previous.z;
     };
 
-    const setMouth = (value: number, alpha = 0.35) => {
-      const v = THREE.MathUtils.clamp(value, 0, 1);
-      morphs.forEach(({ mesh, index }) => {
-        if (mesh.morphTargetInfluences) {
-          mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, v, alpha);
-        }
+    const applyAdditive = () => {
+      additive.forEach((offset, object) => {
+        object.rotation.x += offset.x;
+        object.rotation.y += offset.y;
+        object.rotation.z += offset.z;
       });
-      if (bones?.jaw.length) {
-        bones.jaw.forEach((bone) => rotate(bone, -0.34 * v, 0, 0, 1, 0.32));
-      }
+    };
+
+    const setMorphs = (items: Morph[], value: number, alpha = 0.28) => {
+      const v = THREE.MathUtils.clamp(value, 0, 1);
+      items.forEach(({ mesh, index }) => {
+        if (!mesh.morphTargetInfluences) return;
+        mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, v, alpha);
+      });
+    };
+
+    const setMouth = (value: number, alpha = 0.3) => {
+      const v = THREE.MathUtils.clamp(value, 0, 1);
+      // Keep mouth shapes expressive rather than forcing every morph to the same value.
+      morphs.forEach(({ mesh, index, name }) => {
+        if (!mesh.morphTargetInfluences) return;
+        const n = norm(name);
+        const shape = /jaw|open|aa|ah|ao|oh|uh/.test(n) ? v : /lip|mouth|viseme|phoneme/.test(n) ? v * 0.72 : v * 0.45;
+        mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, shape, alpha);
+      });
+      bones?.jaw.forEach((bone) => addOffset(bone, -0.30 * v, 0, 0, 1, 0.12));
     };
 
     const setBlink = (value: number) => {
-      blinkMorphs.forEach(({ mesh, index }) => {
-        if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index] ?? 0, value, 0.5);
-      });
+      setMorphs(blinkMorphs, value, 0.55);
+      bones?.lLid.forEach((b) => addOffset(b, value * 0.18, 0, 0, 1, 0.08));
+      bones?.rLid.forEach((b) => addOffset(b, value * 0.18, 0, 0, 1, 0.08));
     };
 
     const findAction = (patterns: RegExp[]) => [...actions.entries()].find(([name]) => patterns.some((p) => p.test(name)))?.[1] ?? null;
 
-    const playAction = (action: THREE.AnimationAction | null, loop = THREE.LoopOnce) => {
+    const stopAction = (action: THREE.AnimationAction | null) => {
+      if (!action) return;
+      action.fadeOut(0.2);
+    };
+
+    const playAction = (action: THREE.AnimationAction | null, loop: THREE.AnimationActionLoopStyles = THREE.LoopOnce) => {
       if (!action || action === activeAction) return;
       action.reset();
+      action.enabled = true;
       action.setEffectiveWeight(1);
       action.setEffectiveTimeScale(1);
       action.setLoop(loop, loop === THREE.LoopOnce ? 1 : Infinity);
       action.clampWhenFinished = loop === THREE.LoopOnce;
+      if (activeAction) activeAction.crossFadeTo(action, 0.32, true);
       action.play();
-      if (activeAction) activeAction.crossFadeTo(action, 0.28, true);
       activeAction = action;
     };
 
-    const startGesture = (name: string, duration = 1500) => {
+    const playGestureClip = (patterns: RegExp[], fallback: string, duration = 1400) => {
+      const clip = findAction(patterns);
+      if (clip) {
+        const loop = THREE.LoopOnce;
+        playAction(clip, loop);
+        const clipDuration = Math.max(0.6, clip.getClip().duration * 1000);
+        gestureStarted = performance.now();
+        gestureUntil = gestureStarted + Math.max(duration, clipDuration);
+        mode = fallback;
+        return true;
+      }
+      return false;
+    };
+
+    const startGesture = (name: string, duration = 1400) => {
       mode = name;
       gestureStarted = performance.now();
       gestureUntil = gestureStarted + duration;
@@ -161,116 +211,142 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const t = now * 0.001;
       const active = now < gestureUntil;
       const progress = active ? THREE.MathUtils.clamp((now - gestureStarted) / Math.max(gestureUntil - gestureStarted, 1), 0, 1) : 1;
-      const gesture = active ? Math.sin(progress * Math.PI) : 0;
+      const pulse = active ? Math.sin(progress * Math.PI) : 0;
 
-      // Human-like idle: breathing, weight shift, head attention and relaxed shoulders.
-      const breath = Math.sin(t * 1.55) * 0.022;
-      const sway = Math.sin(t * 0.55) * 0.035 + Math.sin(t * 0.23) * 0.014;
-      bones.spine.forEach((b, i) => rotate(b, breath + Math.sin(t * 0.9 + i) * 0.008, sway * (i === 0 ? 0.7 : 1), Math.sin(t * 0.65 + i) * 0.012));
-      bones.shoulders.forEach((b, i) => rotate(b, breath * 0.8, 0, Math.sin(t * 1.1 + i) * 0.018));
-      bones.head.forEach((b) => rotate(b, Math.sin(t * 0.73) * 0.035, Math.sin(t * 0.49) * 0.055, Math.sin(t * 0.61) * 0.018));
-      bones.neck.forEach((b) => rotate(b, Math.sin(t * 0.73) * 0.012, Math.sin(t * 0.49) * 0.018, 0));
+      // These are deliberately small additive offsets. Native FBX animation owns the body pose.
+      const breath = Math.sin(t * 1.45) * 0.018;
+      const sway = Math.sin(t * 0.52) * 0.022 + Math.sin(t * 0.21) * 0.009;
+      const attentionX = Math.sin(t * 0.71) * 0.035;
+      const attentionY = Math.sin(t * 0.43) * 0.055;
+
+      bones.spine.forEach((b, i) => addOffset(b, breath * (0.8 - i * 0.08), sway * (0.65 + i * 0.05), Math.sin(t * 0.62 + i) * 0.006));
+      bones.shoulders.forEach((b, i) => addOffset(b, breath * 0.35, 0, Math.sin(t * 1.05 + i) * 0.008));
+      bones.neck.forEach((b) => addOffset(b, attentionX * 0.25, attentionY * 0.25, 0));
+      bones.head.forEach((b) => addOffset(b, attentionX, attentionY, Math.sin(t * 0.57) * 0.012));
+
+      // Eyes lead the head: tiny saccades plus a slow conversational gaze.
+      const gazeX = Math.sin(t * 0.77) * 0.105 + Math.sin(t * 2.7) * 0.018;
+      const gazeY = Math.sin(t * 0.48) * 0.052 + Math.sin(t * 3.1) * 0.012;
+      bones.lEye.forEach((b) => addOffset(b, -gazeY, gazeX, 0));
+      bones.rEye.forEach((b) => addOffset(b, -gazeY, gazeX, 0));
 
       if (speaking) {
-        // The audio callback supplies the real amplitude. If it is unavailable, keep a subtle speech rhythm.
-        const fallback = now - lastAudioAt > 180 ? 0.12 + (Math.sin(t * 9.5) * 0.5 + 0.5) * 0.24 : mouthLevel;
-        setMouth(Math.max(mouthLevel, fallback), 0.32);
-        bones.head.forEach((b) => rotate(b, Math.sin(t * 1.7) * 0.045, Math.sin(t * 1.15) * 0.055, 0));
+        const fallback = now - lastAudioAt > 220 ? 0.10 + (Math.sin(t * 10.2) * 0.5 + 0.5) * 0.18 : targetMouth;
+        mouthLevel = THREE.MathUtils.damp(mouthLevel, Math.max(targetMouth, fallback), 16, dt);
+        setMouth(mouthLevel, 0.34);
+        bones.head.forEach((b) => addOffset(b, Math.sin(t * 1.7) * 0.018, Math.sin(t * 1.13) * 0.026, 0));
       } else {
-        mouthLevel = THREE.MathUtils.damp(mouthLevel, 0, 10, dt);
-        setMouth(mouthLevel, 0.25);
+        mouthLevel = THREE.MathUtils.damp(mouthLevel, 0, 12, dt);
+        setMouth(mouthLevel, 0.24);
       }
 
-      // Natural eye focus: the eyes move more than the whole head.
-      const gazeX = Math.sin(t * 0.71) * 0.13 + Math.sin(t * 0.19) * 0.05;
-      const gazeY = Math.sin(t * 0.47) * 0.06;
-      bones.lEye.forEach((b) => rotate(b, -gazeY, gazeX, 0));
-      bones.rEye.forEach((b) => rotate(b, -gazeY, gazeX, 0));
-
-      const walking = mode === 'walk' || mode === 'full-body';
-      if (walking) {
-        const speed = 3.0;
-        const phase = t * speed;
-        const stride = 0.48;
-        bones.lThigh.forEach((b) => rotate(b, Math.sin(phase) * stride, 0, 0));
-        bones.rThigh.forEach((b) => rotate(b, Math.sin(phase + Math.PI) * stride, 0, 0));
-        bones.lCalf.forEach((b) => rotate(b, Math.max(0, Math.sin(phase + Math.PI)) * 0.42, 0, 0));
-        bones.rCalf.forEach((b) => rotate(b, Math.max(0, Math.sin(phase)) * 0.42, 0, 0));
-        bones.lArm.forEach((b) => rotate(b, Math.sin(phase + Math.PI) * 0.36, 0, -0.05));
-        bones.rArm.forEach((b) => rotate(b, Math.sin(phase) * 0.36, 0, 0.05));
-        bones.lFore.forEach((b) => rotate(b, 0.18 + Math.max(0, Math.sin(phase)) * 0.20, 0, 0));
-        bones.rFore.forEach((b) => rotate(b, 0.18 + Math.max(0, Math.sin(phase + Math.PI)) * 0.20, 0, 0));
-        bones.spine.forEach((b, i) => rotate(b, Math.sin(phase) * 0.045, sway * 1.2, Math.sin(phase + i) * 0.025));
+      if (expression === 'smile' || expression === 'happy') {
+        setMorphs(smileMorphs, 0.7, 0.12);
+        bones.head.forEach((b) => addOffset(b, -0.018, 0, 0.012));
+      } else if (expression === 'sad') {
+        setMorphs(frownMorphs, 0.55, 0.12);
+      } else {
+        setMorphs(smileMorphs, 0, 0.08);
+        setMorphs(frownMorphs, 0, 0.08);
       }
 
-      const p = gesture;
-      if (mode === 'wave') {
-        bones.rArm.forEach((b) => rotate(b, -1.05, -0.18, -0.62, p));
-        bones.rFore.forEach((b) => rotate(b, -0.72, 0, 0.24, p));
-        bones.rHand.forEach((b) => rotate(b, 0, Math.sin(t * 7.5) * 0.5, Math.sin(t * 7.5) * 0.18, p));
-      } else if (mode === 'point') {
-        bones.rArm.forEach((b) => rotate(b, -0.72, -0.28, -0.48, p));
-        bones.rFore.forEach((b) => rotate(b, -1.0, 0, 0.08, p));
+      // Fallback body gestures are only used when a native FBX gesture clip is unavailable.
+      if (mode === 'wave' && !activeAction?.getClip().name.toLowerCase().includes('wave')) {
+        bones.rArm.forEach((b) => addOffset(b, -0.78 * pulse, -0.10 * pulse, -0.42 * pulse));
+        bones.rFore.forEach((b) => addOffset(b, -0.58 * pulse, 0, 0.16 * pulse));
+        bones.rHand.forEach((b) => addOffset(b, 0, Math.sin(t * 8.2) * 0.30 * pulse, Math.sin(t * 8.2) * 0.10 * pulse));
+        bones.rFingers.forEach((b, i) => addOffset(b, 0, 0, (i % 2 ? 0.08 : -0.08) * pulse));
+      } else if (mode === 'point' && !activeAction?.getClip().name.toLowerCase().includes('point')) {
+        bones.rArm.forEach((b) => addOffset(b, -0.58 * pulse, -0.18 * pulse, -0.30 * pulse));
+        bones.rFore.forEach((b) => addOffset(b, -0.72 * pulse, 0, 0.08 * pulse));
+        bones.rFingers.forEach((b) => addOffset(b, -0.10 * pulse, 0, 0, iSafe(bones.rFingers.indexOf(b))));
       } else if (mode === 'present' || mode === 'open-hand') {
-        bones.rArm.forEach((b) => rotate(b, -0.56, -0.38, -0.38, p));
-        bones.lArm.forEach((b) => rotate(b, -0.56, 0.38, 0.38, p));
-        bones.rFore.forEach((b) => rotate(b, -0.35, 0, 0, p));
-        bones.lFore.forEach((b) => rotate(b, -0.35, 0, 0, p));
+        bones.rArm.forEach((b) => addOffset(b, -0.42 * pulse, -0.22 * pulse, -0.26 * pulse));
+        bones.lArm.forEach((b) => addOffset(b, -0.42 * pulse, 0.22 * pulse, 0.26 * pulse));
+        bones.rFore.forEach((b) => addOffset(b, -0.24 * pulse, 0, 0));
+        bones.lFore.forEach((b) => addOffset(b, -0.24 * pulse, 0, 0));
+        bones.rFingers.forEach((b) => addOffset(b, 0, 0, 0.10 * pulse));
+        bones.lFingers.forEach((b) => addOffset(b, 0, 0, -0.10 * pulse));
       } else if (mode === 'handshake') {
-        bones.rArm.forEach((b) => rotate(b, -0.82, -0.2, -0.52, p));
-        bones.rFore.forEach((b) => rotate(b, -0.82 + Math.sin(t * 9) * 0.10, 0, 0.12, p));
-        bones.rHand.forEach((b) => rotate(b, Math.sin(t * 9) * 0.08, 0, 0, p));
+        bones.rArm.forEach((b) => addOffset(b, -0.58 * pulse, -0.16 * pulse, -0.32 * pulse));
+        bones.rFore.forEach((b) => addOffset(b, -0.56 * pulse + Math.sin(t * 9) * 0.05 * pulse, 0, 0.08 * pulse));
+        bones.rHand.forEach((b) => addOffset(b, Math.sin(t * 9) * 0.04 * pulse, 0, 0));
       } else if (mode === 'nod') {
-        const nod = Math.sin(progress * Math.PI * 4) * 0.18 * p;
-        bones.head.forEach((b) => rotate(b, nod, 0, 0, 1, 0.24));
-        bones.neck.forEach((b) => rotate(b, nod * 0.38, 0, 0, 1, 0.24));
+        const nod = Math.sin(progress * Math.PI * 4) * 0.12 * pulse;
+        bones.head.forEach((b) => addOffset(b, nod, 0, 0));
+        bones.neck.forEach((b) => addOffset(b, nod * 0.35, 0, 0));
       } else if (mode === 'shrug') {
-        const shrug = Math.sin(progress * Math.PI) * 0.20;
-        bones.shoulders.forEach((b, i) => rotate(b, -shrug, 0, (i % 2 ? -1 : 1) * shrug * 0.25));
+        const shrug = Math.sin(progress * Math.PI) * 0.11;
+        bones.shoulders.forEach((b, i) => addOffset(b, -shrug, 0, (i % 2 ? -1 : 1) * shrug * 0.18));
       } else if (mode === 'laugh') {
-        const laugh = Math.sin(t * 8) * 0.08 * p;
-        bones.head.forEach((b) => rotate(b, laugh, 0, Math.sin(t * 7) * 0.045 * p));
-        bones.spine.forEach((b) => rotate(b, laugh * 0.55, 0, 0));
-        setMouth(0.72, 0.18);
-      } else if (mode === 'smile' || mode === 'happy') {
-        bones.head.forEach((b) => rotate(b, -0.035 * p, 0, 0.025 * p));
-      } else if (mode === 'eyes') {
-        bones.head.forEach((b) => rotate(b, 0, Math.sin(t * 2.2) * 0.10, 0));
-        bones.lEye.forEach((b) => rotate(b, 0, Math.sin(t * 4.5) * 0.28, 0));
-        bones.rEye.forEach((b) => rotate(b, 0, Math.sin(t * 4.5) * 0.28, 0));
+        const laugh = Math.sin(t * 8) * 0.045 * pulse;
+        bones.head.forEach((b) => addOffset(b, laugh, 0, Math.sin(t * 7) * 0.025 * pulse));
+        setMouth(0.78, 0.18);
       } else if (mode === 'talk') {
-        bones.lArm.forEach((b) => rotate(b, -0.12 + Math.sin(t * 2.1) * 0.08, 0, 0.04));
-        bones.rArm.forEach((b) => rotate(b, -0.12 + Math.sin(t * 2.1 + Math.PI) * 0.08, 0, -0.04));
+        bones.lArm.forEach((b) => addOffset(b, Math.sin(t * 2.0) * 0.035, 0, 0.018));
+        bones.rArm.forEach((b) => addOffset(b, Math.sin(t * 2.0 + Math.PI) * 0.035, 0, -0.018));
       }
 
-      if (!active && mode !== 'idle' && !walking) {
+      if (mode === 'walk' || mode === 'full-body') {
+        // Native walk clip controls the limbs. Root translation supplies actual forward/back travel.
+        const travel = walkDirection * dt * 0.52;
+        root.position.z += travel;
+        const bob = Math.sin(t * 5.2) * 0.008;
+        bones.head.forEach((b) => addOffset(b, bob, 0, 0));
+      }
+
+      if (!active && mode !== 'idle' && mode !== 'walk' && mode !== 'full-body' && !speaking) {
         mode = 'idle';
-        playAction(idleAction, THREE.LoopRepeat);
+        if (idleAction) playAction(idleAction, THREE.LoopRepeat);
       }
     };
+
+    // Helper kept tiny so gesture finger offsets remain deterministic.
+    const iSafe = (i: number) => i % 3 === 0 ? 0.9 : 0.35;
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') {
         if (typeof cmd.value?.speaking === 'boolean') speaking = cmd.value.speaking;
-        if (/happy|positive|excited|warm|success|confident/i.test(String(cmd.value?.emotion ?? ''))) micro?.triggerInsightSmileExpression(true);
+        const e = String(cmd.value?.emotion ?? '').toLowerCase();
+        if (/happy|positive|excited|warm|success|confident/.test(e)) expression = 'happy';
+        if (/sad|negative/.test(e)) expression = 'sad';
+        micro?.triggerInsightSmileExpression(/happy|positive|excited|warm|success|confident/.test(e));
         return;
       }
+
       if (cmd.type === 'expression') {
         const v = cmd.value.toLowerCase();
-        if (v.includes('speaking')) { speaking = true; startGesture('talk', 900000); }
-        if (/smile|happy|warm|positive|success|confident/.test(v)) micro?.triggerInsightSmileExpression(true);
-        if (/neutral|rest|stop/.test(v)) { speaking = false; micro?.triggerInsightSmileExpression(false); startGesture('idle', 1); }
+        if (v.includes('speaking')) {
+          speaking = true;
+          mode = 'talk';
+          gestureUntil = performance.now() + 900000;
+        }
+        if (/smile|happy|warm|positive|success|confident/.test(v)) {
+          expression = 'smile';
+          micro?.triggerInsightSmileExpression(true);
+        } else if (/sad|frown|negative/.test(v)) expression = 'sad';
+        if (/neutral|rest|stop/.test(v)) {
+          speaking = false;
+          expression = 'neutral';
+          micro?.triggerInsightSmileExpression(false);
+          startGesture('idle', 1);
+          if (idleAction) playAction(idleAction, THREE.LoopRepeat);
+        }
         return;
       }
+
       if (cmd.type === 'viseme') {
         const raw = Number(cmd.weight ?? 0);
-        mouthLevel = /silence|close|rest/i.test(cmd.value) ? 0 : THREE.MathUtils.clamp(raw, 0, 1);
+        targetMouth = /silence|close|rest/i.test(cmd.value) ? 0 : THREE.MathUtils.clamp(raw, 0, 1);
         lastAudioAt = performance.now();
         return;
       }
 
-      const v = cmd.value.toLowerCase();
-      if (v === 'rotate') { spin = spin ? 0 : 0.55; return; }
+      const v = cmd.value.toLowerCase().trim();
+      if (v === 'rotate') {
+        rotation += Math.PI * 0.35;
+        return;
+      }
       if (v === 'clothes') {
         model?.traverse((o) => {
           if (!(o instanceof THREE.Mesh)) return;
@@ -283,28 +359,58 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
         });
         return;
       }
-      if (v === 'spatial') { rotation += Math.PI * 0.35; startGesture('full-body', 1700); return; }
-      if (v === 'idle') { startGesture('idle', 1); playAction(idleAction, THREE.LoopRepeat); return; }
+      if (v === 'spatial') {
+        rotation += Math.PI * 0.35;
+        startGesture('full-body', 1700);
+        return;
+      }
+      if (v === 'idle') {
+        speaking = false;
+        walkDirection = 0;
+        startGesture('idle', 1);
+        if (idleAction) playAction(idleAction, THREE.LoopRepeat);
+        return;
+      }
 
-      const clip = v.includes('wave') ? findAction([/wave|greet/])
-        : v.includes('walk') ? findAction([/walk|locomotion/])
-        : v.includes('handshake') ? findAction([/handshake|shake/])
-        : v.includes('talk') ? findAction([/talk|speak|conversation/])
-        : null;
-      if (clip) playAction(clip, v.includes('walk') ? THREE.LoopRepeat : THREE.LoopOnce);
+      if (v === 'walk-forward' || v === 'walk forward') {
+        walkDirection = -1;
+        const clip = findAction([/walk|locomotion|forward/]);
+        if (clip) playAction(clip, THREE.LoopRepeat);
+        startGesture('walk', 900000);
+        return;
+      }
+      if (v === 'walk-backward' || v === 'walk backward' || v === 'walk-back') {
+        walkDirection = 1;
+        const clip = findAction([/walk|locomotion|backward|back/]);
+        if (clip) {
+          playAction(clip, THREE.LoopRepeat);
+          clip.setEffectiveTimeScale(-1);
+        }
+        startGesture('walk', 900000);
+        return;
+      }
 
-      if (v.includes('wave')) startGesture('wave');
-      else if (v.includes('point')) startGesture('point');
-      else if (v.includes('present') || v.includes('open-hand')) startGesture('present');
-      else if (v.includes('handshake')) startGesture('handshake', 1700);
-      else if (v.includes('nod')) startGesture('nod', 1100);
-      else if (v.includes('shrug')) startGesture('shrug', 1000);
-      else if (v.includes('laugh')) startGesture('laugh', 1500);
-      else if (v.includes('smile') || v.includes('happy')) startGesture('smile', 1200);
+      let usedNative = false;
+      if (v.includes('wave')) usedNative = playGestureClip([/wave|greet|salute/], 'wave', 1400);
+      else if (v.includes('handshake')) usedNative = playGestureClip([/handshake|shake|greeting/], 'handshake', 1700);
+      else if (v.includes('point')) usedNative = playGestureClip([/point|indicate/], 'point', 1300);
+      else if (v.includes('nod')) usedNative = playGestureClip([/nod|yes/], 'nod', 1000);
+      else if (v.includes('shrug')) usedNative = playGestureClip([/shrug/], 'shrug', 1000);
+      else if (v.includes('laugh')) usedNative = playGestureClip([/laugh|laughing/], 'laugh', 1400);
+      else if (v.includes('talk')) usedNative = playGestureClip([/talk|speak|conversation/], 'talk', 900000);
+
+      if (v.includes('wave')) startGesture('wave', usedNative ? 1500 : 1300);
+      else if (v.includes('point')) startGesture('point', usedNative ? 1400 : 1200);
+      else if (v.includes('present') || v.includes('open-hand')) startGesture('present', 1200);
+      else if (v.includes('handshake')) startGesture('handshake', usedNative ? 1800 : 1600);
+      else if (v.includes('nod')) startGesture('nod', usedNative ? 1200 : 1000);
+      else if (v.includes('shrug')) startGesture('shrug', usedNative ? 1200 : 1000);
+      else if (v.includes('laugh')) startGesture('laugh', usedNative ? 1500 : 1300);
+      else if (v.includes('smile') || v.includes('happy')) { expression = 'smile'; startGesture('smile', 1200); }
       else if (v.includes('eyes')) startGesture('eyes', 1600);
       else if (v.includes('talk')) { speaking = true; startGesture('talk', 900000); }
       else if (v.includes('full-body')) startGesture('full-body', 5000);
-      else if (v.includes('walk')) startGesture('walk', 900000);
+      else if (v.includes('walk')) { walkDirection = -1; startGesture('walk', 900000); }
     };
 
     apiRef.current = { command };
@@ -318,20 +424,21 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
           o.frustumCulled = false;
           if (o.morphTargetDictionary && o.morphTargetInfluences) {
             Object.entries(o.morphTargetDictionary).forEach(([name, index]) => {
-              const item = { mesh: o, index };
+              const item = { mesh: o, index, name };
               if (MOUTH_NAMES.test(name)) morphs.push(item);
               if (BLINK_NAMES.test(name)) blinkMorphs.push(item);
+              if (SMILE_NAMES.test(name)) smileMorphs.push(item);
+              if (FROWN_NAMES.test(name)) frownMorphs.push(item);
             });
           }
         }
-        if (o instanceof THREE.Bone) bases.set(o, o.rotation.clone());
       });
 
       bones = detectBones(loaded);
       micro = createMicroExpressionEngine(loaded, { isSpeaking: () => speaking });
       mixer = new THREE.AnimationMixer(loaded);
       loaded.animations.forEach((clip) => actions.set(norm(clip.name), mixer!.clipAction(clip)));
-      idleAction = findAction([/idle|stand|breath|rest/]);
+      idleAction = findAction([/idle|stand|breath|rest|neutral/]);
       if (idleAction) playAction(idleAction, THREE.LoopRepeat);
 
       loaded.scale.setScalar(1);
@@ -346,7 +453,9 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       const distance = height * 0.62 / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
       camera.position.set(0, height * 0.46, Math.max(2, distance));
       camera.lookAt(0, height * 0.47, 0);
-      statusRef.current?.(`3D AVATAR READY • ${bones.head.length ? 'HEAD' : 'BODY'} • ${morphs.length ? 'LIPS' : 'JAW'} • ${blinkMorphs.length ? 'EYES' : 'EYE BONES'}`);
+
+      const nativeNames = [...actions.keys()].join(', ');
+      statusRef.current?.(`3D AVATAR READY • ${bones.head.length ? 'HEAD' : 'BODY'} • ${morphs.length ? 'LIPS' : bones.jaw.length ? 'JAW' : 'MOUTH'} • ${bones.lEye.length || blinkMorphs.length ? 'EYES' : 'NO EYE RIG'} • ${nativeNames ? `${actions.size} FBX ANIMS` : 'PROCEDURAL MOTION'}`);
     }, undefined, (error) => {
       if (!disposed) statusRef.current?.(`AVATAR LOAD ERROR • ${error instanceof Error ? error.message : 'CHECK avatar.fbx'}`);
     });
@@ -367,25 +476,28 @@ export default function AvatarEngine({ onStatus, onApi }: Props) {
       if (disposed) return;
       const start = performance.now();
       const step = () => {
-        const p = (performance.now() - start) / 150;
+        const p = (performance.now() - start) / 155;
         if (p <= 1) {
-          setBlink(p < 0.5 ? p * 2 : 2 - p * 2);
+          setBlink(p < 0.45 ? p / 0.45 : 1 - (p - 0.45) / 0.55);
           requestAnimationFrame(step);
-        } else setBlink(0);
+        } else {
+          setBlink(0);
+          blinkTimer = window.setTimeout(blink, 2200 + Math.random() * 3800);
+        }
       };
       requestAnimationFrame(step);
-      blinkTimer = window.setTimeout(blink, 2300 + Math.random() * 3600);
     };
-    blinkTimer = window.setTimeout(blink, 1800);
+    blinkTimer = window.setTimeout(blink, 1700);
 
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const now = performance.now();
-      if (spin) rotation += spin * dt;
-      root.rotation.y = THREE.MathUtils.damp(root.rotation.y, rotation + Math.sin(now * 0.00025) * 0.018, 4.5, dt);
       mixer?.update(dt);
+      // Reset per-frame additive accumulator, then calculate a fresh layer on top of the FBX pose.
+      additive.clear();
       motion(now, dt);
+      applyAdditive();
       micro?.update(now);
       renderer.render(scene, camera);
     });
