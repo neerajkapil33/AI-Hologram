@@ -708,12 +708,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             object.visible = false;
           }
 
-          const objectName = norm(object.name);
-          if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(objectName)) {
-            glassesObjects.push(object);
-            object.visible = false;
-          }
-
           if (!(object instanceof THREE.Mesh))
             return;
 
