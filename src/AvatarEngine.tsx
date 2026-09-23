@@ -41,7 +41,7 @@ type Morph = {
   name: string;
 };
 
-const SRC = `${import.meta.env.BASE_URL}rerun-avatar.fbx`;
+const SRC = `${import.meta.env.BASE_URL}avatar/model.fbx`;
 
 const norm = (s: string) =>
   s.replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -717,10 +717,28 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
         loaded.updateMatrixWorld(true);
 
+        const padding = 1.16;
+        const vFov = THREE.MathUtils.degToRad(camera.fov);
+        const hFov =
+          2 * Math.atan(
+            Math.tan(vFov / 2) * camera.aspect,
+          );
+        const distanceFromHeight =
+          (size.y * padding) /
+          (2 * Math.tan(vFov / 2));
+        const distanceFromWidth =
+          (size.x * padding) /
+          (2 * Math.tan(hFov / 2));
+        const distance = Math.max(
+          distanceFromHeight,
+          distanceFromWidth,
+          size.z * 1.5,
+        );
+
         camera.position.set(
           0,
           height * 0.50,
-          height * 1.78,
+          distance,
         );
 
         camera.lookAt(
@@ -788,7 +806,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         );
 
         setStatus(
-          `RERUN AVATAR READY • FULL BODY • ${
+          `NEERAJ AVATAR READY • FULL BODY • ${
             loaded.animations.length
           } FBX CLIP${
             loaded.animations.length === 1
@@ -809,10 +827,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         );
 
         setStatus(
-          `RERUN AVATAR LOAD ERROR • ${
+          `NEERAJ AVATAR LOAD ERROR • ${
             error instanceof Error
               ? error.message
-              : 'CHECK rerun-avatar.fbx'
+              : 'CHECK avatar/model.fbx'
           }`,
         );
       },
