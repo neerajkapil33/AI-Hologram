@@ -36,6 +36,7 @@ type BoneMap = {
   rCalf: THREE.Bone | null;
   lFoot: THREE.Bone | null;
   rFoot: THREE.Bone | null;
+  jaw: THREE.Bone | null;
 
   lEye: THREE.Bone | null;
   rEye: THREE.Bone | null;
@@ -96,6 +97,7 @@ function findBones(root: THREE.Object3D): BoneMap {
     rCalf: null,
     lFoot: null,
     rFoot: null,
+    jaw: null,
     lEye: null,
     rEye: null,
   };
@@ -136,6 +138,7 @@ function findBones(root: THREE.Object3D): BoneMap {
   bones.rCalf = findExactBone(root, ['RightLeg', 'RightCalf', 'RCalf', 'RLeg']);
   bones.lFoot = findExactBone(root, ['LeftFoot', 'LFoot', 'LeftAnkle', 'LAnkle']);
   bones.rFoot = findExactBone(root, ['RightFoot', 'RFoot', 'RightAnkle', 'RAnkle']);
+  bones.jaw = findExactBone(root, ['Jaw', 'LowerJaw', 'Mandible']);
 
   bones.lEye = findExactBone(root, [
     'LeftEye',
@@ -264,6 +267,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
+    const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
+    const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
 
     const originalRotation = new Map<
       THREE.Bone,
@@ -497,6 +502,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         return;
       }
 
+      if (/^(calibrate|self-check|diagnose|diagnostics)$/.test(value)) {
+        setStatus('NEERAJ SELF-CHECK • ARMS ' + [bones?.lArm, bones?.rArm, bones?.lFore, bones?.rFore].filter(Boolean).length + ' • FINGERS ' + (fingerBones.left.length + fingerBones.right.length) + ' • LEGS ' + [bones?.lThigh, bones?.rThigh, bones?.lCalf, bones?.rCalf].filter(Boolean).length + ' • FACE ' + (morphs.length + (bones?.jaw ? 1 : 0)));
+        return;
+      }
+
       if (/^(glasses|spectacles|eyewear|glasses-on|spectacles-on)$/.test(value)) {
         setGlasses(true);
         return;
@@ -708,6 +718,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             object.visible = false;
           }
 
+          if (object instanceof THREE.Bone) {
+            const n = norm(object.name);
+            const isFinger = /finger|thumb|index|middle|ring|pinky|little|metacarp|proximal|distal/.test(n);
+            if (isFinger && !/hand$|wrist|forearm|arm/.test(n)) {
+              if (/left|^l/.test(n)) fingerBones.left.push(object);
+              if (/right|^r/.test(n)) fingerBones.right.push(object);
+            }
+          }
+
           if (!(object instanceof THREE.Mesh))
             return;
 
@@ -872,6 +891,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             rCalf: bones.rCalf?.name,
             lFoot: bones.lFoot?.name,
             rFoot: bones.rFoot?.name,
+            jaw: bones.jaw?.name,
             lEye: bones.lEye?.name,
             rEye: bones.rEye?.name,
           },
@@ -1034,6 +1054,19 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         0.48,
       );
 
+      // Fallback jaw articulation for FBX rigs without usable lip morphs.
+      if (bones?.jaw) {
+        const base = originalRotation.get(bones.jaw);
+        if (base) {
+          bones.jaw.rotation.x = THREE.MathUtils.damp(
+            bones.jaw.rotation.x,
+            base.x + mouth * 0.22,
+            18,
+            dt,
+          );
+        }
+      }
+
       /*
        * PROCEDURAL BODY MOTION
        */
@@ -1149,8 +1182,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(
             bones.rHand,
             'z',
-            Math.sin(time * 9) *
-              0.12,
+            Math.sin(time * 9) * 0.12 * adaptiveProfile.hand,
             12,
             dt,
           );
@@ -1198,13 +1230,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          addRotation(
-            bones.rHand,
-            'z',
-            -0.12,
-            14,
-            dt,
-          );
+          addRotation(bones.rHand, 'z', -0.12 * adaptiveProfile.hand, 14, dt);
+          fingerBones.right.forEach((finger, index) => addRotation(finger, 'x', index % 4 === 0 ? 0.02 : 0.18, 10, dt));
         }
 
         /*
@@ -1253,13 +1280,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          addRotation(
-            bones.rHand,
-            'z',
-            0.12,
-            12,
-            dt,
-          );
+          addRotation(bones.rHand, 'z', 0.12 * adaptiveProfile.hand, 12, dt);
+          fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.16, 10, dt));
+          fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.16, 10, dt));
         }
 
         /*
@@ -1483,12 +1506,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const leftKnee = Math.max(0, Math.sin(phase + Math.PI / 2));
           const rightKnee = Math.max(0, Math.sin(phase + Math.PI / 2 + Math.PI));
 
-          addRotation(bones.lThigh, 'x', leftSwing * (fast ? 0.62 : 0.48), 14, dt);
-          addRotation(bones.rThigh, 'x', rightSwing * (fast ? 0.62 : 0.48), 14, dt);
-          addRotation(bones.lCalf, 'x', leftKnee * (fast ? 0.72 : 0.52), 16, dt);
-          addRotation(bones.rCalf, 'x', rightKnee * (fast ? 0.72 : 0.52), 16, dt);
-          addRotation(bones.lFoot, 'x', -leftSwing * (fast ? 0.22 : 0.16), 14, dt);
-          addRotation(bones.rFoot, 'x', -rightSwing * (fast ? 0.22 : 0.16), 14, dt);
+          addRotation(bones.lThigh, 'x', leftSwing * (fast ? 0.62 : 0.48) * adaptiveProfile.leg, 14, dt);
+          addRotation(bones.rThigh, 'x', rightSwing * (fast ? 0.62 : 0.48) * adaptiveProfile.leg, 14, dt);
+          addRotation(bones.lCalf, 'x', leftKnee * (fast ? 0.72 : 0.52) * adaptiveProfile.leg, 16, dt);
+          addRotation(bones.rCalf, 'x', rightKnee * (fast ? 0.72 : 0.52) * adaptiveProfile.leg, 16, dt);
+          addRotation(bones.lFoot, 'x', -leftSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
+          addRotation(bones.rFoot, 'x', -rightSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
           addRotation(bones.lArm, 'z', -leftSwing * (fast ? 0.28 : 0.20), 12, dt);
           addRotation(bones.rArm, 'z', -rightSwing * (fast ? 0.28 : 0.20), 12, dt);
           addRotation(bones.spine, 'x', Math.abs(Math.sin(phase * 2)) * 0.025, 10, dt);
