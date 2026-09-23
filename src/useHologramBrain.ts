@@ -149,7 +149,20 @@ export function useHologramBrain(opts: {
     return false;
   }, []);
 
+  const sendAudio = useCallback((blob: Blob, language = 'en-IN') => {
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result ?? '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      socket.send(JSON.stringify({ type: 'audio', audio: base64, language }));
+    };
+    reader.readAsDataURL(blob);
+    return true;
+  }, []);
+
   const stopSpeaking = useCallback(() => currentSourceRef.current?.stop(), []);
 
-  return { status, sendText, stopSpeaking };
+  return { status, sendText, sendAudio, stopSpeaking };
 }
