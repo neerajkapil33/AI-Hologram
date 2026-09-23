@@ -11,6 +11,9 @@ const API_BASE_URL = (import.meta.env.VITE_BACKEND_HTTP_URL ?? '').replace(/\/$/
 function App() {
   const apiRef = useRef<{ command: (c: AvatarCommand) => void } | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [language, setLanguage] = useState('en-IN');
   const [status, setStatus] = useState('LOADING • NEERAJ FBX AVATAR');
@@ -24,7 +27,7 @@ function App() {
 
   const command = (c: AvatarCommand) => apiRef.current?.command(c);
 
-  const { status: brainStatus, sendText, stopSpeaking } = useHologramBrain({
+  const { status: brainStatus, sendText, sendAudio, stopSpeaking } = useHologramBrain({
     onAssistantText: (text) => setResponse(text),
     onPerformance: (p) => {
       command({ type: 'performance', value: p });
@@ -52,22 +55,68 @@ function App() {
     sendText(clean, language);
   };
 
-  const startListening = () => {
-    const speechWindow = window as SpeechWindow;
-    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (!Recognition) { setStatus('VOICE INPUT NOT SUPPORTED'); return; }
-    const recognition = new Recognition();
-    recognition.lang = language;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = (event) => processQuestion(event.results[0]?.[0]?.transcript ?? '');
-    recognition.onerror = () => { setListening(false); setStatus('VOICE INPUT ERROR'); };
-    recognition.onend = () => setListening(false);
-    recognitionRef.current = recognition;
-    setListening(true);
-    setStatus(`LISTENING • ${language}`);
-    command({ type: 'expression', value: 'neutral' });
-    recognition.start();
+  const startListening = async () => {
+    if (brainStatus !== 'ready') { setStatus('AI BRAIN OFFLINE'); return; }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      const speechWindow = window as SpeechWindow;
+      const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+      if (!Recognition) { setStatus('MICROPHONE NOT SUPPORTED'); return; }
+      const recognition = new Recognition();
+      recognition.lang = language;
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.onresult = (event) => processQuestion(event.results[0]?.[0]?.transcript ?? '');
+      recognition.onerror = () => { setListening(false); setStatus('VOICE INPUT ERROR'); };
+      recognition.onend = () => setListening(false);
+      recognitionRef.current = recognition;
+      setListening(true);
+      setStatus(`LISTENING • ${language}`);
+      recognition.start();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const preferred = 'audio/webm;codecs=opus';
+      const recorder = MediaRecorder.isTypeSupported(preferred)
+        ? new MediaRecorder(stream, { mimeType: preferred })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        if (!blob.size) { setListening(false); setStatus('NO VOICE CAPTURED'); return; }
+        setStatus('TRANSCRIBING • NEERAJ AI');
+        if (!sendAudio(blob, language)) setStatus('AI BRAIN OFFLINE');
+        setListening(false);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setListening(false);
+        setStatus('MICROPHONE RECORDING ERROR');
+      };
+      recorder.start();
+      setListening(true);
+      setStatus(`SPEAK NOW • ${language}`);
+      command({ type: 'expression', value: 'neutral' });
+    } catch {
+      setListening(false);
+      setStatus('MICROPHONE PERMISSION REQUIRED');
+    }
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+    else streamRef.current?.getTracks().forEach((track) => track.stop());
   };
 
   const startVideoCall = async () => {
@@ -114,7 +163,7 @@ function App() {
       <div className="control-group"><div className="control-label">HANDS</div>{action('Wave', 'wave')}{action('Point', 'point')}{action('Present', 'present')}{action('Open Hands', 'open-hand')}{action('Handshake', 'handshake')}</div>
       <div className="control-group"><div className="control-label">BODY</div>{action('Idle / Breathe', 'idle')}{action('Nod', 'nod')}{action('Walk', 'walk')}{action('Full Body', 'full-body')}{action('Shrug', 'shrug')}</div>
       <div className="control-group"><div className="control-label">VOICE</div>
-        <button type="button" className={`avatar-control ${listening ? 'active' : ''}`} onClick={() => { if (listening) recognitionRef.current?.stop(); else startListening(); }}>{listening ? 'Stop Talk' : 'Talk'}</button>
+        <button type="button" className={`avatar-control ${listening ? 'active' : ''}`} onClick={() => { if (listening) stopListening(); else startListening(); }}>{listening ? 'Stop Speaking' : '🎙 Speak'}</button>
         <div className="reply-row"><input ref={inputRef} placeholder="Type a reply…" onKeyDown={(e) => { if (e.key === 'Enter') { processQuestion(e.currentTarget.value); e.currentTarget.value = ''; } }} /><button type="button" className="avatar-control active" onClick={() => { const value = inputRef.current?.value ?? ''; processQuestion(value); if (inputRef.current) inputRef.current.value = ''; }}>Reply</button></div>
         {speaking && <button type="button" className="avatar-control" onClick={stopSpeaking}>Stop Voice</button>}
         <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="Language"><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option></select>
