@@ -550,7 +550,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
         walk: [/walk/, /locomotion/, /run/, /jog/],
         wave: [/wave/, /greet/, /salute/, /hello/],
-        handshake: [/handshake/, /hand-shake/, /shake/],
+        handshake: [/^handshake$/, /^hand-shake$/, /handshake/],
         point: [/point/, /indicate/],
         present: [/present/, /explain/, /show/, /openhand/],
         nod: [/nod/, /yes/, /agree/],
@@ -565,8 +565,27 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       };
 
       const patterns = nativePatterns[gesture] ?? [];
-      if (patterns.length) {
-        nativeMotion = playNative(patterns, gesture === 'idle' || gesture === 'walk');
+      const exactNativeOnly =
+        gesture === 'wave' ||
+        gesture === 'handshake' ||
+        gesture === 'laugh';
+
+      if (patterns.length && !exactNativeOnly) {
+        nativeMotion = playNative(
+          patterns,
+          gesture === 'idle' || gesture === 'walk',
+        );
+      }
+
+      if (exactNativeOnly && model?.animations.some((clip) => {
+        const n = norm(clip.name);
+        return gesture === 'wave'
+          ? /^(wave|waving|greet|salute|hello)$/.test(n)
+          : gesture === 'handshake'
+            ? /^(handshake|handshake01|handshake02)$/.test(n)
+            : /^(laugh|laughing|laughter)$/.test(n);
+      })) {
+        nativeMotion = playNative(patterns, false);
       }
 
       // If a one-shot native clip exists, let the clip own the bones completely.
@@ -677,6 +696,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         root.add(loaded);
 
         loaded.traverse((object) => {
+          const objectName = norm(object.name);
+          if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(objectName)) {
+            glassesObjects.push(object);
+            object.visible = false;
+          }
+
           const objectName = norm(object.name);
           if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(objectName)) {
             glassesObjects.push(object);
@@ -1361,19 +1386,24 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(
             bones.head,
             'x',
-            Math.sin(
-              time * 8,
-            ) *
-              0.07,
-            10,
+            Math.sin(time * 8) * 0.10,
+            12,
             dt,
           );
 
           addRotation(
             bones.spine,
             'x',
-            0.05,
-            8,
+            0.075 + Math.abs(Math.sin(time * 7)) * 0.035,
+            9,
+            dt,
+          );
+
+          addRotation(
+            bones.spine1,
+            'x',
+            0.045 + Math.abs(Math.sin(time * 7)) * 0.025,
+            9,
             dt,
           );
 
@@ -1573,8 +1603,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           eyes: 1400,
           'full-body': 2200,
           clothes: 1800,
-          sit: 2600,
-          stand: 2200,
+          sit: 3200,
+          stand: 2600,
         };
 
         const duration = durations[gesture] ?? 0;
