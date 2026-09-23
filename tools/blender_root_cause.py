@@ -2,11 +2,31 @@ import bpy, sys, json, os, math, traceback
 from mathutils import Vector, Quaternion
 
 def cli():
+    """Return (fbx, report) for command-line mode, or (None, None) for open-scene mode."""
     if "--" not in sys.argv:
-        raise SystemExit("Usage: blender -b --python blender_root_cause.py -- <fbx> <report.json>")
+        return None, None
     a = sys.argv[sys.argv.index("--")+1:]
-    if len(a) < 2: raise SystemExit("Missing FBX/report paths")
+    if len(a) < 2:
+        raise SystemExit("Missing FBX/report paths")
     return os.path.abspath(a[0]), os.path.abspath(a[1])
+
+def find_open_scene_inputs():
+    """Use the already imported FBX scene in Blender."""
+    arms = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    if not arms:
+        raise RuntimeError("No armature found in the open Blender scene. Import model.fbx first.")
+    if not meshes:
+        raise RuntimeError("No mesh found in the open Blender scene. Import model.fbx first.")
+    return arms, meshes
+
+def default_scene_report_path():
+    base = bpy.data.filepath
+    if base:
+        folder = os.path.dirname(os.path.abspath(base))
+    else:
+        folder = os.path.expanduser("~/Desktop")
+    return os.path.join(folder, "blender-root-cause-report.json")
 
 def norm(s): return s.lower().replace("_","").replace("-","").replace(" ","")
 
@@ -71,12 +91,19 @@ def deformation_delta(mesh, base, depsgraph):
     return {"mean":round(mean,6),"max":round(mx,6),"changed":mx>1e-5}
 
 def main():
-    fbx,out=cli()
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.fbx(filepath=fbx, automatic_bone_orientation=False)
-    deps=bpy.context.evaluated_depsgraph_get()
-    arms=[o for o in bpy.context.scene.objects if o.type=="ARMATURE"]
-    meshes=[o for o in bpy.context.scene.objects if o.type=="MESH"]
+    fbx, out = cli()
+    if fbx:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.import_scene.fbx(filepath=fbx, automatic_bone_orientation=False)
+        deps=bpy.context.evaluated_depsgraph_get()
+        arms=[o for o in bpy.context.scene.objects if o.type=="ARMATURE"]
+        meshes=[o for o in bpy.context.scene.objects if o.type=="MESH"]
+    else:
+        # One-click mode: inspect the FBX that is already open in Blender.
+        deps=bpy.context.evaluated_depsgraph_get()
+        arms, meshes = find_open_scene_inputs()
+        out = default_scene_report_path()
+        fbx = bpy.data.filepath or "<currently open/imported FBX scene>"
     report={"source":fbx,"blender":bpy.app.version_string,"summary":{}, "armatures":[], "movement_tests":[], "animation_analysis":[], "facial_analysis":[], "issues":[]}
     report["summary"]={"armatures":len(arms),"meshes":len(meshes),"actions":len(bpy.data.actions)}
 
@@ -165,7 +192,7 @@ def main():
     print("ROOT_CAUSE_DIAGNOSTIC_COMPLETE")
     print(json.dumps(report["summary"],indent=2))
 
-if __name__=="__main__":
+# One-click Blender Console usage:\n# exec(compile(open(r"C:\\path\\to\\blender_root_cause.py", encoding="utf-8").read(), "blender_root_cause.py", "exec"))\n# If Blender already contains the imported FBX, no CLI arguments are required.\n\nif __name__=="__main__":
     try: main()
     except Exception:
         traceback.print_exc()
