@@ -30,6 +30,12 @@ type BoneMap = {
   rFore: THREE.Bone | null;
   lHand: THREE.Bone | null;
   rHand: THREE.Bone | null;
+  lThigh: THREE.Bone | null;
+  rThigh: THREE.Bone | null;
+  lCalf: THREE.Bone | null;
+  rCalf: THREE.Bone | null;
+  lFoot: THREE.Bone | null;
+  rFoot: THREE.Bone | null;
 
   lEye: THREE.Bone | null;
   rEye: THREE.Bone | null;
@@ -83,8 +89,13 @@ function findBones(root: THREE.Object3D): BoneMap {
     lFore: null,
     rFore: null,
     lHand: null,
-
     rHand: null,
+    lThigh: null,
+    rThigh: null,
+    lCalf: null,
+    rCalf: null,
+    lFoot: null,
+    rFoot: null,
     lEye: null,
     rEye: null,
   };
@@ -118,6 +129,13 @@ function findBones(root: THREE.Object3D): BoneMap {
 
   bones.lHand = findExactBone(root, ['LeftHand']);
   bones.rHand = findExactBone(root, ['RightHand']);
+
+  bones.lThigh = findExactBone(root, ['LeftUpLeg', 'LeftThigh', 'LThigh', 'LUpLeg']);
+  bones.rThigh = findExactBone(root, ['RightUpLeg', 'RightThigh', 'RThigh', 'RUpLeg']);
+  bones.lCalf = findExactBone(root, ['LeftLeg', 'LeftCalf', 'LCalf', 'LLeg']);
+  bones.rCalf = findExactBone(root, ['RightLeg', 'RightCalf', 'RCalf', 'RLeg']);
+  bones.lFoot = findExactBone(root, ['LeftFoot', 'LFoot', 'LeftAnkle', 'LAnkle']);
+  bones.rFoot = findExactBone(root, ['RightFoot', 'RFoot', 'RightAnkle', 'RAnkle']);
 
   bones.lEye = findExactBone(root, [
     'LeftEye',
@@ -241,6 +259,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let mouth = 0;
 
     let targetRotation = 0;
+    let rotationStep = 0;
+    const glassesObjects: THREE.Object3D[] = [];
 
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
@@ -348,6 +368,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       );
     };
 
+    const restoreLowerBody = (
+      map: BoneMap,
+      speed: number,
+      dt: number,
+    ) => {
+      [map.lThigh, map.rThigh, map.lCalf, map.rCalf, map.lFoot, map.rFoot]
+        .forEach((bone) => restoreBone(bone, speed, dt));
+    };
+
     const restoreUpperBody = (
       map: BoneMap,
       speed: number,
@@ -442,6 +471,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       return true;
     };
 
+    const setGlasses = (visible: boolean) => {
+      glassesObjects.forEach((object) => { object.visible = visible; });
+      setStatus(`3D AVATAR • GLASSES ${visible ? 'ON' : 'OFF'}`);
+    };
+
     const runGesture = (raw: string) => {
       const value = raw
         .toLowerCase()
@@ -449,9 +483,27 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         .replace(/--+/g, '-')
         .trim();
 
-      if (value === 'rotate' || value === 'turn' || value === 'turn-around') {
-        targetRotation += Math.PI * 0.55;
-        setStatus('3D AVATAR • ROTATING');
+      if (value === 'reset-rotation' || value === 'face-front' || value === 'front') {
+        rotationStep = 0;
+        targetRotation = 0;
+        setStatus('3D AVATAR • FRONT');
+        return;
+      }
+
+      if (value === 'rotate' || value === 'turn' || value === 'turn-around' || value === 'rotate-step' || value === 'turn-step') {
+        rotationStep += THREE.MathUtils.degToRad(45);
+        targetRotation = rotationStep;
+        setStatus('3D AVATAR • ROTATION STEP 45°');
+        return;
+      }
+
+      if (/^(glasses|spectacles|eyewear|glasses-on|spectacles-on)$/.test(value)) {
+        setGlasses(true);
+        return;
+      }
+
+      if (/^(no-glasses|glasses-off|spectacles-off|remove-glasses|remove-spectacles)$/.test(value)) {
+        setGlasses(false);
         return;
       }
 
@@ -479,6 +531,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'full-body';
       } else if (/\b(clothes|clothing|adjust-clothes|adjust-clothing)\b/.test(value)) {
         gesture = 'clothes';
+      } else if (/\b(sit|sitting|sit-down|sitdown)\b/.test(value)) {
+        gesture = 'sit';
+      } else if (/\b(stand|standing|stand-up|standup|rise|get-up)\b/.test(value)) {
+        gesture = 'stand';
       } else if (/\b(idle|neutral|rest|reset|stop)\b/.test(value)) {
         gesture = 'idle';
       } else {
@@ -504,6 +560,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         eyes: [/eye/, /gaze/, /look/],
         'full-body': [/fullbody/, /performance/, /dance/, /gesture/],
         clothes: [/clothes/, /clothing/, /adjust/],
+        sit: [/sit/, /sitting/, /sitdown/],
+        stand: [/stand/, /standing/, /standup/, /rise/, /getup/],
       };
 
       const patterns = nativePatterns[gesture] ?? [];
@@ -619,6 +677,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         root.add(loaded);
 
         loaded.traverse((object) => {
+          const objectName = norm(object.name);
+          if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(objectName)) {
+            glassesObjects.push(object);
+            object.visible = false;
+          }
+
           if (!(object instanceof THREE.Mesh))
             return;
 
@@ -777,6 +841,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             rFore: bones.rFore?.name,
             lHand: bones.lHand?.name,
             rHand: bones.rHand?.name,
+            lThigh: bones.lThigh?.name,
+            rThigh: bones.rThigh?.name,
+            lCalf: bones.lCalf?.name,
+            rCalf: bones.rCalf?.name,
+            lFoot: bones.lFoot?.name,
+            rFoot: bones.rFoot?.name,
             lEye: bones.lEye?.name,
             rEye: bones.rEye?.name,
           },
@@ -949,6 +1019,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * the same local bone axes.
          */
         restoreUpperBody(bones, 10, dt);
+        restoreLowerBody(bones, 10, dt);
 
         /*
          * Always maintain a subtle breathing motion.
@@ -1374,6 +1445,21 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         /*
          * FULL BODY
          */
+        else if (gesture === 'sit') {
+          addRotation(bones.lThigh, 'x', -0.95, 4.5, dt);
+          addRotation(bones.rThigh, 'x', -0.95, 4.5, dt);
+          addRotation(bones.lCalf, 'x', 1.35, 4.5, dt);
+          addRotation(bones.rCalf, 'x', 1.35, 4.5, dt);
+          addRotation(bones.lFoot, 'x', -0.35, 4.5, dt);
+          addRotation(bones.rFoot, 'x', -0.35, 4.5, dt);
+          addRotation(bones.spine, 'x', -0.10, 4, dt);
+        }
+
+        else if (gesture === 'stand') {
+          restoreLowerBody(bones, 4.5, dt);
+          restoreBone(bones.spine, 4, dt);
+        }
+
         else if (
           gesture === 'full-body'
         ) {
@@ -1487,6 +1573,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           eyes: 1400,
           'full-body': 2200,
           clothes: 1800,
+          sit: 2600,
+          stand: 2200,
         };
 
         const duration = durations[gesture] ?? 0;
