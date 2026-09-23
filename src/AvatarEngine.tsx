@@ -518,6 +518,35 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         return;
       }
 
+      if (/^blink$/.test(value)) {
+        blinkUntil = performance.now() + 180;
+        setStatus('3D AVATAR • BLINK TEST');
+        return;
+      }
+
+      if (/^jaw$/.test(value)) {
+        targetMouth = 0.75;
+        speaking = true;
+        setStatus('3D AVATAR • JAW / LIP TEST');
+        return;
+      }
+
+      if (/^(look-left|look-right|look-up|look-down|look)$/.test(value)) {
+        gesture = value;
+        gestureStarted = performance.now();
+        stopNativeMotion();
+        setStatus(`3D AVATAR • ${value.toUpperCase()} TEST`);
+        return;
+      }
+
+      if (/^(left-arm-up|right-arm-up|arms-up|cross-arms|fingers)$/.test(value)) {
+        gesture = value;
+        gestureStarted = performance.now();
+        stopNativeMotion();
+        setStatus(`3D AVATAR • ${value.toUpperCase()} TEST`);
+        return;
+      }
+
       if (/^(glasses|spectacles|eyewear|glasses-on|spectacles-on)$/.test(value)) {
         setGlasses(true);
         return;
@@ -1181,6 +1210,50 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * HEAD / NECK DIRECTION TESTS
+         */
+        else if (/^look-(left|right|up|down)$/.test(gesture)) {
+          const horizontal = gesture === 'look-left' ? 0.28 : gesture === 'look-right' ? -0.28 : 0;
+          const vertical = gesture === 'look-up' ? -0.16 : gesture === 'look-down' ? 0.16 : 0;
+          addRotation(bones.lEye, 'y', horizontal, 12, dt);
+          addRotation(bones.rEye, 'y', horizontal, 12, dt);
+          addRotation(bones.lEye, 'x', vertical, 12, dt);
+          addRotation(bones.rEye, 'x', vertical, 12, dt);
+          addRotation(bones.neck, 'y', horizontal * 0.30, 8, dt);
+          addRotation(bones.head, 'y', horizontal * 0.55, 9, dt);
+          addRotation(bones.neck, 'x', vertical * 0.30, 8, dt);
+          addRotation(bones.head, 'x', vertical * 0.55, 9, dt);
+        }
+
+        /*
+         * ARM / HAND / FINGER TESTS
+         */
+        else if (gesture === 'left-arm-up' || gesture === 'right-arm-up' || gesture === 'arms-up') {
+          const left = gesture !== 'right-arm-up';
+          const right = gesture !== 'left-arm-up';
+          if (left) {
+            addRotation(bones.lShoulder, 'z', 0.72, 10, dt);
+            addRotation(bones.lArm, 'z', 0.82, 10, dt);
+            addRotation(bones.lFore, 'x', -0.35, 10, dt);
+          }
+          if (right) {
+            addRotation(bones.rShoulder, 'z', -0.72, 10, dt);
+            addRotation(bones.rArm, 'z', -0.82, 10, dt);
+            addRotation(bones.rFore, 'x', -0.35, 10, dt);
+          }
+        }
+        else if (gesture === 'cross-arms') {
+          addRotation(bones.lArm, 'z', 0.48, 10, dt);
+          addRotation(bones.rArm, 'z', -0.48, 10, dt);
+          addRotation(bones.lFore, 'y', -0.72, 10, dt);
+          addRotation(bones.rFore, 'y', 0.72, 10, dt);
+        }
+        else if (gesture === 'fingers') {
+          fingerBones.left.forEach((finger, index) => addRotation(finger, 'x', 0.18 + Math.sin(time * 5 + index) * 0.08, 10, dt));
+          fingerBones.right.forEach((finger, index) => addRotation(finger, 'x', 0.18 + Math.sin(time * 5 + index) * 0.08, 10, dt));
+        }
+
+        /*
          * WAVE
          */
         else if (
@@ -1689,6 +1762,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           smile: 1800,
           eyes: 1400,
           'full-body': 2200,
+          'look-left': 1400,
+          'look-right': 1400,
+          'look-up': 1400,
+          'look-down': 1400,
+          'left-arm-up': 1600,
+          'right-arm-up': 1600,
+          'arms-up': 1600,
+          'cross-arms': 1800,
+          fingers: 1400,
           clothes: 1800,
           sit: 3200,
           stand: 2600,
