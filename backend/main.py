@@ -28,7 +28,7 @@ async def health():
         'tavus': tavus.configured,
         'persona': 'neeraj-ai-career-companion',
         'performance_director': True,
-        'capabilities': ['conversation', 'multilingual', 'voice', 'lip_sync', 'facial_expression', 'gesture', 'full_body_performance'],
+        'capabilities': ['conversation', 'multilingual', 'voice', 'lip_sync', 'facial_expression', 'gesture', 'full_body_performance', 'AI_ML', 'mathematics', 'science', 'medical_science', 'research', 'Hindu_literature', 'politics_neutral', 'markets', 'corporate', 'startup_design', 'software_creation'],
     }
 
 @app.post('/api/tavus/conversation')
