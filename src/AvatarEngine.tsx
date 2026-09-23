@@ -267,6 +267,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
+    const expressionMorphs: Morph[] = [];
     const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
     const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
 
@@ -398,6 +399,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         map.rHand,
         map.head,
         map.neck,
+        map.lEye,
+        map.rEye,
       ].forEach((bone) =>
         restoreBone(bone, speed, dt),
       );
@@ -474,6 +477,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       activeAction = action;
 
       return true;
+    };
+
+    const stopNativeMotion = () => {
+      if (mixer) {
+        mixer.stopAllAction();
+      }
+      activeAction = null;
+      nativeMotion = false;
     };
 
     const setGlasses = (visible: boolean) => {
@@ -556,7 +567,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
 
       gestureStarted = performance.now();
-      nativeMotion = false;
+      stopNativeMotion();
 
       // Prefer animation clips authored for this exact rig. Procedural motion is
       // only a fallback; this prevents guessed bone axes from fighting the FBX.
@@ -765,12 +776,25 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               ) {
                 blinkMorphs.push(item);
               }
+
+              if (
+                /smile|happy|sad|frown|brow|cheek|mouthsmile|lipcorner/.test(
+                  normalized,
+                )
+              ) {
+                expressionMorphs.push(item);
+              }
             });
           }
         });
 
         bones = findBones(loaded);
-        console.info('[Neeraj Avatar] MOTION ROOT CAUSE CHECK', { nativeClips: loaded.animations.map((c) => c.name), bones, fingerCount: fingerBones.left.length + fingerBones.right.length, morphCount: morphs.length, nativeProceduralConflictPolicy: 'procedural gestures own bones' });
+        console.info('[Neeraj Avatar] MOTION ROOT CAUSE CHECK', { nativeClips: loaded.animations.map((c) => c.name), bones, fingerCount: fingerBones.left.length + fingerBones.right.length,
+          morphCount: morphs.length,
+          blinkMorphCount: blinkMorphs.length,
+          expressionMorphCount: expressionMorphs.length,
+          nativeProceduralConflictPolicy: 'procedural gestures own bones',
+          missingCriticalJoints: Object.entries(bones).filter(([, value]) => !value).map(([name]) => name) });
 
         rememberAllBones(bones);
 
@@ -1061,6 +1085,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         0.48,
       );
 
+      if (expression === 'smile') {
+        const smileTargets = expressionMorphs.filter((item) =>
+          /smile|happy|mouthsmile|lipcorner/.test(norm(item.name)),
+        );
+        setMorph(smileTargets, 0.22, 0.22);
+      }
+
       // Fallback jaw articulation for FBX rigs without usable lip morphs.
       if (bones?.jaw) {
         const base = originalRotation.get(bones.jaw);
@@ -1072,6 +1103,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
         }
+      }
+
+      /*
+       * HUMAN-LIKE HEAD / NECK / EYE LAYER
+       * This runs independently of hand/body gestures so facial attention is
+       * not frozen whenever a gesture is active.
+       */
+      if (bones && !nativeMotion) {
+        const attention = speaking ? 1 : 0.55;
+        addRotation(bones.neck, 'y', Math.sin(time * 0.55) * 0.018 * attention, 4, dt);
+        addRotation(bones.neck, 'x', Math.sin(time * 0.72 + 0.7) * 0.012 * attention, 4, dt);
+        addRotation(bones.head, 'y', Math.sin(time * 0.78 + 1.1) * 0.035 * attention, 5, dt);
+        addRotation(bones.head, 'x', Math.sin(time * 0.62) * 0.018 * attention, 5, dt);
+
+        const gazeX = Math.sin(time * 0.42 + 0.8) * 0.025;
+        const gazeY = Math.sin(time * 0.36 + 1.5) * 0.014;
+        addRotation(bones.lEye, 'y', gazeX, 9, dt);
+        addRotation(bones.rEye, 'y', gazeX, 9, dt);
+        addRotation(bones.lEye, 'x', gazeY, 9, dt);
+        addRotation(bones.rEye, 'x', gazeY, 9, dt);
       }
 
       /*
@@ -1172,16 +1223,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
 
           addRotation(bones.rFore, 'x', -0.52, 10, dt);
-          addRotation(bones.rFore, 'z', Math.sin(time * 7) * 0.10, 10, dt);
-
-          addRotation(
-            bones.rFore,
-            'z',
-            Math.sin(time * 7) *
-              0.12,
-            12,
-            dt,
-          );
+          addRotation(bones.rFore, 'z', Math.sin(time * 7) * 0.12, 12, dt);
 
           addRotation(bones.rHand, 'z', Math.sin(time * 9) * 0.16 * adaptiveProfile.hand, 12, dt);
           addRotation(bones.rHand, 'y', Math.sin(time * 9 + Math.PI / 2) * 0.06, 10, dt);
@@ -1455,12 +1497,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
+          const smileMorphs = morphs.filter((item) =>
+            /smile|mouthsmile|lipcorner|happy/i.test(item.name),
+          );
           setMorph(
-            morphs,
-            Math.max(
-              mouth,
-              0.16,
-            ),
+            smileMorphs.length ? smileMorphs : morphs,
+            Math.max(mouth, 0.16),
             0.18,
           );
         }
@@ -1471,27 +1513,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (
           gesture === 'eyes'
         ) {
-          addRotation(
-            bones.lEye,
-            'y',
-            Math.sin(
-              time * 1.4,
-            ) *
-              0.08,
-            10,
-            dt,
-          );
-
-          addRotation(
-            bones.rEye,
-            'y',
-            Math.sin(
-              time * 1.4,
-            ) *
-              0.08,
-            10,
-            dt,
-          );
+          const gaze = Math.sin(time * 1.15) * 0.07;
+          const vertical = Math.sin(time * 0.9 + 1) * 0.025;
+          addRotation(bones.lEye, 'y', gaze, 10, dt);
+          addRotation(bones.rEye, 'y', gaze, 10, dt);
+          addRotation(bones.lEye, 'x', vertical, 10, dt);
+          addRotation(bones.rEye, 'x', vertical, 10, dt);
+          addRotation(bones.neck, 'y', gaze * 0.18, 6, dt);
+          addRotation(bones.head, 'y', gaze * 0.35, 7, dt);
         }
 
         /*
