@@ -3,6 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const getBackendWsUrl = () => {
   const configured = String(import.meta.env.VITE_BACKEND_WS_URL ?? '').trim();
   if (configured) return configured.replace(/\/$/, '');
+
+  const httpBase = String(import.meta.env.VITE_BACKEND_HTTP_URL ?? '').trim().replace(/\/$/, '');
+  if (httpBase) {
+    if (/^https:\/\//i.test(httpBase)) return httpBase.replace(/^https:\/\//i, 'wss://') + '/ws';
+    if (/^http:\/\//i.test(httpBase)) return httpBase.replace(/^http:\/\//i, 'ws://') + '/ws';
+  }
+
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.hostname}:8000/ws`;
@@ -69,6 +76,7 @@ export function useHologramBrain(opts: {
 
       socket.onerror = () => {
         setStatus('offline');
+        console.error('[Neeraj AI] WebSocket unavailable:', getBackendWsUrl());
       };
 
       socket.onmessage = async (event) => {
