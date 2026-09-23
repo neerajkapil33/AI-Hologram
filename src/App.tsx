@@ -159,16 +159,24 @@ function App() {
         <button type="button" className={`avatar-control ${spatial ? 'active' : ''}`} onClick={() => { setSpatial(true); setStatus('SPATIAL MODE • DEPTH VIEW'); command({ type: 'gesture', value: 'spatial' }); }}>Spatial</button>
         <button type="button" className="avatar-control" onClick={() => { command({ type: 'gesture', value: 'rotate' }); setStatus('3D AVATAR • ROTATING'); }}>Rotate 3D Avatar</button>
       </div>
-      <div className="control-group"><div className="control-label">FACE</div>{action('Laugh', 'laugh')}{action('Smile', 'smile')}{action('Face Emotions', 'happy')}{action('Eye Gestures', 'eyes')}</div>
-      <div className="control-group"><div className="control-label">HANDS</div>{action('Wave', 'wave')}{action('Point', 'point')}{action('Present', 'present')}{action('Open Hands', 'open-hand')}{action('Handshake', 'handshake')}</div>
-      <div className="control-group"><div className="control-label">BODY</div>{action('Idle / Breathe', 'idle')}{action('Nod', 'nod')}{action('Walk', 'walk')}{action('Full Body', 'full-body')}{action('Shrug', 'shrug')}</div>
+      <div className="control-group"><div className="control-label">FACE & HEAD TESTS</div>
+        {action('Neutral / Reset', 'idle')}{action('Smile', 'smile')}{action('Laugh', 'laugh')}{action('Face Emotions', 'happy')}{action('Blink / Eyes', 'eyes')}{action('Head Nod', 'nod')}{action('Head / Neck Look', 'look')}{action('Look Left', 'look-left')}{action('Look Right', 'look-right')}{action('Look Up', 'look-up')}{action('Look Down', 'look-down')}{action('Jaw / Talk', 'jaw')}{action('Blink Test', 'blink')}
+      </div>
+      <div className="control-group"><div className="control-label">HANDS & ARMS TESTS</div>
+        {action('Wave', 'wave')}{action('Point', 'point')}{action('Present', 'present')}{action('Open Hands', 'open-hand')}{action('Handshake', 'handshake')}{action('Raise Left Arm', 'left-arm-up')}{action('Raise Right Arm', 'right-arm-up')}{action('Both Arms Up', 'arms-up')}{action('Cross Arms', 'cross-arms')}{action('Finger Test', 'fingers')}
+      </div>
+      <div className="control-group"><div className="control-label">BODY & LEGS TESTS</div>
+        {action('Idle / Breathe', 'idle')}{action('Nod', 'nod')}{action('Shrug', 'shrug')}{action('Walk', 'walk')}{action('Run', 'run')}{action('Jump', 'jump')}{action('Sit', 'sit')}{action('Stand', 'stand')}{action('Full Body', 'full-body')}{action('Turn 45°', 'rotate')}{action('Face Front', 'front')}
+      </div>
       <div className="control-group"><div className="control-label">VOICE</div>
         <button type="button" className={`avatar-control ${listening ? 'active' : ''}`} onClick={() => { if (listening) stopListening(); else startListening(); }}>{listening ? 'Stop Speaking' : '🎙 Speak'}</button>
         <div className="reply-row"><input ref={inputRef} placeholder="Type a reply…" onKeyDown={(e) => { if (e.key === 'Enter') { processQuestion(e.currentTarget.value); e.currentTarget.value = ''; } }} /><button type="button" className="avatar-control active" onClick={() => { const value = inputRef.current?.value ?? ''; processQuestion(value); if (inputRef.current) inputRef.current.value = ''; }}>Reply</button></div>
         {speaking && <button type="button" className="avatar-control" onClick={stopSpeaking}>Stop Voice</button>}
         <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="Language"><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option><option value="te-IN">తెలుగు</option></select>
       </div>
-      <div className="control-group"><div className="control-label">APPEARANCE</div><button type="button" className="avatar-control" onClick={() => { command({ type: 'gesture', value: 'clothes' }); setStatus('CLOTHES • NEXT OUTFIT'); }}>Cloths Change</button></div>
+      <div className="control-group"><div className="control-label">APPEARANCE & RIG</div>
+        {action('Glasses ON', 'glasses-on')}{action('Glasses OFF', 'glasses-off')}{action('Clothes Test', 'clothes')}{action('Self-Check Rig', 'self-check')}
+      </div>
       <div className="control-group"><button type="button" className="avatar-control call" disabled={startingCall} onClick={startVideoCall}>{startingCall ? 'Connecting…' : liveRoom ? 'End Spatial Call' : 'Spatial Live Call'}</button>{liveRoom && <button type="button" className="avatar-control" onClick={() => { setLiveRoom(null); setSpatial(false); setStatus('3D AVATAR • READY'); }}>Back to 3D</button>}</div>
     </aside>
   </main>;
