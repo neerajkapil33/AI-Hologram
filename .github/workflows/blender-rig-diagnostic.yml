@@ -1,0 +1,30 @@
+name: Blender FBX Rig Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/avatar/model.fbx'
+      - 'tools/rig_diagnostic.py'
+      - '.github/workflows/blender-rig-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender
+          blender --version
+      - name: Inspect current main FBX
+        run: |
+          mkdir -p artifacts
+          blender -b --python tools/rig_diagnostic.py -- public/avatar/model.fbx artifacts/rig-report.json
+      - name: Upload diagnostic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-rig-diagnostic
+          path: artifacts/rig-report.json
