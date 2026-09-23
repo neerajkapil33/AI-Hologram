@@ -583,10 +583,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const patterns = nativePatterns[gesture] ?? [];
       const exactNativeOnly =
         gesture === 'wave' ||
+        gesture === 'point' ||
+        gesture === 'present' ||
         gesture === 'handshake' ||
         gesture === 'laugh';
+      const proceduralPriority = new Set(['wave','point','present','handshake','nod','shrug','laugh','smile','walk','run','jump','sit','stand','full-body']);
 
-      if (patterns.length && !exactNativeOnly) {
+      if (patterns.length && !exactNativeOnly && !proceduralPriority.has(gesture)) {
         nativeMotion = playNative(
           patterns,
           gesture === 'idle' || gesture === 'walk',
@@ -767,6 +770,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         });
 
         bones = findBones(loaded);
+        console.info('[Neeraj Avatar] MOTION ROOT CAUSE CHECK', { nativeClips: loaded.animations.map((c) => c.name), bones, fingerCount: fingerBones.left.length + fingerBones.right.length, morphCount: morphs.length, nativeProceduralConflictPolicy: 'procedural gestures own bones' });
 
         rememberAllBones(bones);
 
@@ -1048,8 +1052,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           dt,
         );
 
+      const openMouthMorphs = morphs.filter((item) =>
+        /viseme|mouthopen|jawopen|phoneme|^aa$|^ah$|^ao$|^oh$|^uh$/i.test(norm(item.name)),
+      );
       setMorph(
-        morphs,
+        openMouthMorphs.length ? openMouthMorphs : morphs,
         mouth,
         0.48,
       );
@@ -1078,6 +1085,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          */
         restoreUpperBody(bones, 10, dt);
         restoreLowerBody(bones, 10, dt);
+        // All procedural gestures start from the captured rest pose each frame;
+        // this prevents hand/elbow/leg rotations from accumulating or stacking.
 
         /*
          * Always maintain a subtle breathing motion.
@@ -1162,13 +1171,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          addRotation(
-            bones.rFore,
-            'x',
-            -0.28,
-            10,
-            dt,
-          );
+          addRotation(bones.rFore, 'x', -0.52, 10, dt);
+          addRotation(bones.rFore, 'z', Math.sin(time * 7) * 0.10, 10, dt);
 
           addRotation(
             bones.rFore,
@@ -1179,13 +1183,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          addRotation(
-            bones.rHand,
-            'z',
-            Math.sin(time * 9) * 0.12 * adaptiveProfile.hand,
-            12,
-            dt,
-          );
+          addRotation(bones.rHand, 'z', Math.sin(time * 9) * 0.16 * adaptiveProfile.hand, 12, dt);
+          addRotation(bones.rHand, 'y', Math.sin(time * 9 + Math.PI / 2) * 0.06, 10, dt);
         }
 
         /*
@@ -1231,7 +1230,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
 
           addRotation(bones.rHand, 'z', -0.12 * adaptiveProfile.hand, 14, dt);
-          fingerBones.right.forEach((finger, index) => addRotation(finger, 'x', index % 4 === 0 ? 0.02 : 0.18, 10, dt));
+          fingerBones.right.forEach((finger, index) => addRotation(finger, 'x', index % 4 === 0 ? 0.04 : 0.12 + Math.abs(Math.sin(time * 9 + index)) * 0.06, 10, dt));
         }
 
         /*
