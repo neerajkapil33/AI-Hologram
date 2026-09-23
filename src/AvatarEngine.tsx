@@ -702,8 +702,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         root.add(loaded);
 
         loaded.traverse((object) => {
-          const objectName = norm(object.name);
-          if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(objectName)) {
+          const avatarObjectName = norm(object.name);
+          if (/glasses|spectacles|eyewear|eyeglass|sunglasses/.test(avatarObjectName)) {
             glassesObjects.push(object);
             object.visible = false;
           }
