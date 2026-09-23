@@ -525,8 +525,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'smile';
       } else if (/\b(eyes|eye-contact|look|looking|gaze)\b/.test(value)) {
         gesture = 'eyes';
-      } else if (/\b(walk|walking|step|stepping|locomotion|run|running)\b/.test(value)) {
+      } else if (/\b(run|running|sprint|sprinting)\b/.test(value)) {
+        gesture = 'run';
+      } else if (/\b(walk|walking|step|stepping|locomotion)\b/.test(value)) {
         gesture = 'walk';
+      } else if (/\b(jump|jumping|leap|leaping)\b/.test(value)) {
+        gesture = 'jump';
       } else if (/\b(full-body|fullbody|performance|perform)\b/.test(value)) {
         gesture = 'full-body';
       } else if (/\b(clothes|clothing|adjust-clothes|adjust-clothing)\b/.test(value)) {
@@ -548,7 +552,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       // only a fallback; this prevents guessed bone axes from fighting the FBX.
       const nativePatterns: Record<string, RegExp[]> = {
         idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
-        walk: [/walk/, /locomotion/, /run/, /jog/],
+        walk: [/walk/, /walking/, /locomotion/],
+        run: [/run/, /running/, /sprint/, /jog/],
+        jump: [/jump/, /jumping/, /leap/],
         wave: [/wave/, /greet/, /salute/, /hello/],
         handshake: [/^handshake$/, /^hand-shake$/, /handshake/],
         point: [/point/, /indicate/],
@@ -1473,6 +1479,42 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * WALK / RUN / JUMP LEG TESTS
+         */
+        else if (gesture === 'walk' || gesture === 'run') {
+          const fast = gesture === 'run';
+          const phase = time * (fast ? 8.5 : 5.2);
+          const leftSwing = Math.sin(phase);
+          const rightSwing = Math.sin(phase + Math.PI);
+          const leftKnee = Math.max(0, Math.sin(phase + Math.PI / 2));
+          const rightKnee = Math.max(0, Math.sin(phase + Math.PI / 2 + Math.PI));
+
+          addRotation(bones.lThigh, 'x', leftSwing * (fast ? 0.62 : 0.48), 14, dt);
+          addRotation(bones.rThigh, 'x', rightSwing * (fast ? 0.62 : 0.48), 14, dt);
+          addRotation(bones.lCalf, 'x', leftKnee * (fast ? 0.72 : 0.52), 16, dt);
+          addRotation(bones.rCalf, 'x', rightKnee * (fast ? 0.72 : 0.52), 16, dt);
+          addRotation(bones.lFoot, 'x', -leftSwing * (fast ? 0.22 : 0.16), 14, dt);
+          addRotation(bones.rFoot, 'x', -rightSwing * (fast ? 0.22 : 0.16), 14, dt);
+          addRotation(bones.lArm, 'z', -leftSwing * (fast ? 0.28 : 0.20), 12, dt);
+          addRotation(bones.rArm, 'z', -rightSwing * (fast ? 0.28 : 0.20), 12, dt);
+          addRotation(bones.spine, 'x', Math.abs(Math.sin(phase * 2)) * 0.025, 10, dt);
+        }
+
+        else if (gesture === 'jump') {
+          const t = THREE.MathUtils.clamp((now - gestureStarted) / 900, 0, 1);
+          const arc = Math.sin(Math.PI * t);
+          const crouch = t < 0.24 ? t / 0.24 : t > 0.76 ? (1 - t) / 0.24 : 0;
+
+          addRotation(bones.lThigh, 'x', -0.38 * crouch, 10, dt);
+          addRotation(bones.rThigh, 'x', -0.38 * crouch, 10, dt);
+          addRotation(bones.lCalf, 'x', 0.55 * crouch, 10, dt);
+          addRotation(bones.rCalf, 'x', 0.55 * crouch, 10, dt);
+          addRotation(bones.lFoot, 'x', -0.18 * crouch, 10, dt);
+          addRotation(bones.rFoot, 'x', -0.18 * crouch, 10, dt);
+          root.position.y = arc * 0.22;
+        }
+
+        /*
          * FULL BODY
          */
         else if (gesture === 'sit') {
@@ -1605,6 +1647,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           clothes: 1800,
           sit: 3200,
           stand: 2600,
+          walk: 3000,
+          run: 3000,
+          jump: 1200,
         };
 
         const duration = durations[gesture] ?? 0;
