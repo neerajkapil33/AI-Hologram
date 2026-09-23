@@ -119,7 +119,7 @@ def main():
         for b in arm.data.bones:
             ml=b.matrix_local.to_3x3()
             bones.append({"name":b.name,"parent":b.parent.name if b.parent else None,"children":[x.name for x in b.children],
-              "length":round(b.length,6),"roll":round(float(b.roll),6),
+              "length":round(b.length,6),"roll":round(float(getattr(b, "roll", 0.0)),6),
               "head":v3(b.head_local),"tail":v3(b.tail_local),
               "axes":{"x":v3(ml.col[0].normalized()),"y":v3(ml.col[1].normalized()),"z":v3(ml.col[2].normalized())},
               "group":classify(b.name)})
