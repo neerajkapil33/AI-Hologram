@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
@@ -225,6 +225,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let model: THREE.Object3D | null = null;
     let mixer: THREE.AnimationMixer | null = null;
     let activeAction: THREE.AnimationAction | null = null;
+    let nativeMotion = false;
 
     let bones: BoneMap | null = null;
 
@@ -393,7 +394,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       loop: boolean,
       fallbackFirst = false,
     ) => {
-      if (!mixer || !model) return false;
+      if (!mixer || !model) {
+        nativeMotion = false;
+        return false;
+      }
 
       const clip =
         model.animations.find((candidate) =>
@@ -405,10 +409,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           ? model.animations[0]
           : undefined);
 
-      if (!clip) return false;
+      if (!clip) {
+        nativeMotion = false;
+        return false;
+      }
 
       const action = mixer.clipAction(clip);
 
+      nativeMotion = true;
       action.reset();
       action.setEffectiveWeight(1);
       action.setEffectiveTimeScale(1);
@@ -424,11 +432,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         activeAction &&
         activeAction !== action
       ) {
-        activeAction.crossFadeTo(
-          action,
-          0.18,
-          true,
-        );
+        activeAction.fadeOut(0.16);
+        action.fadeIn(0.16);
       }
 
       action.play();
@@ -440,105 +445,76 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     const runGesture = (raw: string) => {
       const value = raw
         .toLowerCase()
-        .replace(/_/g, '-')
+        .replace(/[_\s]+/g, '-')
+        .replace(/--+/g, '-')
         .trim();
 
-      if (value === 'rotate') {
+      if (value === 'rotate' || value === 'turn' || value === 'turn-around') {
         targetRotation += Math.PI * 0.55;
-
         setStatus('3D AVATAR • ROTATING');
-
         return;
       }
 
-      if (
-        value.includes('wave') ||
-        value.includes('greet')
-      ) {
+      if (/\b(wave|waving|greet|greeting|hello|hi|welcome)\b/.test(value)) {
         gesture = 'wave';
-      } else if (
-        value.includes('point')
-      ) {
+      } else if (/\b(point|pointing|indicate|indicating)\b/.test(value)) {
         gesture = 'point';
-      } else if (
-        value.includes('present') ||
-        value.includes('open-hand')
-      ) {
+      } else if (/\b(present|presenting|explain|explaining|show|showing|open-hand|open-palms)\b/.test(value)) {
         gesture = 'present';
-      } else if (
-        value.includes('handshake')
-      ) {
+      } else if (/\b(handshake|hand-shake|shake-hand|shake-hands)\b/.test(value)) {
         gesture = 'handshake';
-      } else if (
-        value.includes('nod')
-      ) {
+      } else if (/\b(nod|nodding|yes|agree|agreement)\b/.test(value)) {
         gesture = 'nod';
-      } else if (
-        value.includes('shrug')
-      ) {
+      } else if (/\b(shrug|shrugging|uncertain|uncertainty)\b/.test(value)) {
         gesture = 'shrug';
-      } else if (
-        value.includes('laugh')
-      ) {
+      } else if (/\b(laugh|laughing|laughter)\b/.test(value)) {
         gesture = 'laugh';
-      } else if (
-        value.includes('smile') ||
-        value.includes('happy')
-      ) {
+      } else if (/\b(smile|smiling|happy|happiness)\b/.test(value)) {
         gesture = 'smile';
-      } else if (
-        value.includes('eyes')
-      ) {
+      } else if (/\b(eyes|eye-contact|look|looking|gaze)\b/.test(value)) {
         gesture = 'eyes';
-      } else if (
-        value.includes('walk')
-      ) {
+      } else if (/\b(walk|walking|step|stepping|locomotion|run|running)\b/.test(value)) {
         gesture = 'walk';
-      } else if (
-        value.includes('full-body')
-      ) {
+      } else if (/\b(full-body|fullbody|performance|perform)\b/.test(value)) {
         gesture = 'full-body';
-      } else if (
-        value.includes('clothes')
-      ) {
+      } else if (/\b(clothes|clothing|adjust-clothes|adjust-clothing)\b/.test(value)) {
         gesture = 'clothes';
+      } else if (/\b(idle|neutral|rest|reset|stop)\b/.test(value)) {
+        gesture = 'idle';
       } else {
         gesture = 'idle';
       }
 
       gestureStarted = performance.now();
+      nativeMotion = false;
 
-      if (gesture === 'walk') {
-        playNative(
-          [/walk/, /locomotion/, /run/],
-          true,
-        );
-      } else if (gesture === 'idle') {
-        playNative(
-          [/idle/, /stand/, /breath/, /rest/, /neutral/],
-          true,
-          true,
-        );
-      } else if (gesture === 'full-body') {
-        playNative(
-          [/idle/, /stand/, /breath/, /neutral/],
-          true,
-          true,
-        );
-      } else if (gesture === 'wave') {
-        playNative(
-          [/wave/, /greet/, /salute/],
-          false,
-        );
-      } else if (gesture === 'handshake') {
-        playNative(
-          [/handshake/, /shake/],
-          false,
-        );
+      // Prefer animation clips authored for this exact rig. Procedural motion is
+      // only a fallback; this prevents guessed bone axes from fighting the FBX.
+      const nativePatterns: Record<string, RegExp[]> = {
+        idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
+        walk: [/walk/, /locomotion/, /run/, /jog/],
+        wave: [/wave/, /greet/, /salute/, /hello/],
+        handshake: [/handshake/, /hand-shake/, /shake/],
+        point: [/point/, /indicate/],
+        present: [/present/, /explain/, /show/, /openhand/],
+        nod: [/nod/, /yes/, /agree/],
+        shrug: [/shrug/, /uncertain/],
+        laugh: [/laugh/, /laughter/],
+        smile: [/smile/, /happy/],
+        eyes: [/eye/, /gaze/, /look/],
+        'full-body': [/fullbody/, /performance/, /dance/, /gesture/],
+        clothes: [/clothes/, /clothing/, /adjust/],
+      };
+
+      const patterns = nativePatterns[gesture] ?? [];
+      if (patterns.length) {
+        nativeMotion = playNative(patterns, gesture === 'idle' || gesture === 'walk');
       }
 
+      // If a one-shot native clip exists, let the clip own the bones completely.
+      // Otherwise the controlled fallback pose below is used.
       setStatus(
-        `3D AVATAR • ${gesture.toUpperCase()}`,
+        `3D AVATAR • ${gesture.toUpperCase()} • ${nativeMotion ? 'NATIVE' : 'FALLBACK'}`,
       );
     };
 
@@ -689,6 +665,20 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         mixer =
           new THREE.AnimationMixer(loaded);
 
+        mixer.addEventListener('finished', (event) => {
+          if (event.action !== activeAction) return;
+          if (!event.action.clampWhenFinished) return;
+
+          nativeMotion = false;
+          gesture = 'idle';
+          gestureStarted = performance.now();
+          playNative(
+            [/idle/, /stand/, /breath/, /rest/, /neutral/],
+            true,
+            true,
+          );
+        });
+
         loaded.updateMatrixWorld(true);
 
         const box =
@@ -755,18 +745,19 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
         camera.updateProjectionMatrix();
 
-        const nativeStarted =
-          playNative(
-            [
-              /idle/,
-              /stand/,
-              /breath/,
-              /rest/,
-              /neutral/,
-            ],
-            true,
-            true,
-          );
+        nativeMotion = playNative(
+          [
+            /idle/,
+            /stand/,
+            /breath/,
+            /rest/,
+            /neutral/,
+          ],
+          true,
+          true,
+        );
+
+        const nativeStarted = nativeMotion;
 
         console.log(
           '[Neeraj Avatar] Skeleton:',
@@ -951,7 +942,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       /*
        * PROCEDURAL BODY MOTION
        */
-      if (bones) {
+      if (bones && !nativeMotion) {
+        /*
+         * Procedural fallback is deliberately conservative. The FBX's own
+         * authored clips are preferred because arbitrary rigs do not share
+         * the same local bone axes.
+         */
+        restoreUpperBody(bones, 10, dt);
+
         /*
          * Always maintain a subtle breathing motion.
          */
@@ -1014,32 +1012,32 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(
             bones.rShoulder,
             'z',
-            -0.18,
-            12,
+            -0.08,
+            10,
             dt,
           );
 
           addRotation(
             bones.rArm,
             'z',
-            -1.05,
-            14,
+            -0.42,
+            10,
             dt,
           );
 
           addRotation(
             bones.rArm,
             'x',
-            -0.15,
-            14,
+            -0.08,
+            10,
             dt,
           );
 
           addRotation(
             bones.rFore,
             'x',
-            -0.55,
-            14,
+            -0.28,
+            10,
             dt,
           );
 
@@ -1047,8 +1045,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             bones.rFore,
             'z',
             Math.sin(time * 7) *
-              0.18,
-            18,
+              0.12,
+            12,
             dt,
           );
 
@@ -1056,8 +1054,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             bones.rHand,
             'z',
             Math.sin(time * 9) *
-              0.25,
-            18,
+              0.12,
+            12,
             dt,
           );
         }
@@ -1472,6 +1470,33 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               0.04,
             5,
             dt,
+          );
+        }
+      }
+
+      if (!nativeMotion && gesture !== 'idle') {
+        const durations: Record<string, number> = {
+          wave: 1800,
+          point: 1600,
+          present: 1800,
+          handshake: 2000,
+          nod: 1200,
+          shrug: 1400,
+          laugh: 1800,
+          smile: 1800,
+          eyes: 1400,
+          'full-body': 2200,
+          clothes: 1800,
+        };
+
+        const duration = durations[gesture] ?? 0;
+        if (duration > 0 && now - gestureStarted > duration) {
+          gesture = 'idle';
+          gestureStarted = now;
+          nativeMotion = playNative(
+            [/idle/, /stand/, /breath/, /rest/, /neutral/],
+            true,
+            true,
           );
         }
       }
