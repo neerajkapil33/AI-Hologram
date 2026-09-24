@@ -13,6 +13,9 @@ class AvatarEngine:
     def __init__(self, root):
         self.root = Path(root)
         self.engine = os.getenv("AVATAR_ENGINE", "simple").lower()
+        self.model_path = Path(
+            os.getenv("AVATAR_MODEL_PATH", self.root / "public" / "avatar" / "model.fbx")
+        )
         self.source_video = Path(
             os.getenv("MUSETALK_SOURCE_VIDEO", self.root / "assets_private" / "neeraj-reference.mp4")
         )
@@ -23,9 +26,15 @@ class AvatarEngine:
     def available(self):
         return (
             self.engine == "musetalk"
+            and self.model_path.exists()
             and self.source_video.exists()
             and (self.musetalk_dir / "configs/inference/realtime.yaml").exists()
         )
+
+    @property
+    def model(self):
+        """Absolute path to the authenticated production avatar FBX."""
+        return self.model_path.resolve()
 
     def generate(self, audio_path):
         if not self.available:
