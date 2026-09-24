@@ -661,22 +661,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       // Active gestures remain procedural so one controller owns the body bones.
       const nativePatterns: Record<string, RegExp[]> = {
         idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
-        walk: [/walk/, /walking/, /locomotion/],
-        run: [/run/, /running/, /sprint/, /jog/],
-        jump: [/jump/, /jumping/, /leap/],
-        wave: [/wave/, /waving/, /greet/, /salute/, /hello/],
-        handshake: [/handshake/, /hand-shake/, /shakehand/],
-        point: [/point/, /indicate/],
-        present: [/present/, /explain/, /show/, /openhand/],
-        nod: [/nod/, /yes/, /agree/],
-        shrug: [/shrug/, /uncertain/],
-        laugh: [/laugh/, /laughter/],
-        smile: [/smile/, /happy/],
-        eyes: [/eye/, /gaze/, /look/],
-        'full-body': [/fullbody/, /performance/, /dance/, /gesture/],
-        clothes: [/clothes/, /clothing/, /adjust/],
-        sit: [/sit/, /sitting/, /sitdown/],
-        stand: [/stand/, /standing/, /standup/, /rise/, /getup/],
       };
 
       const patterns = nativePatterns[gesture] ?? [];
@@ -1868,45 +1852,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
         }
 
-        /*
-         * SPEAKING
-         */
-        else if (
-          speaking
-        ) {
-          addRotation(
-            bones.head,
-            'y',
-            Math.sin(
-              time * 2.2,
-            ) *
-              0.025,
-            5,
-            dt,
-          );
-
-          addRotation(
-            bones.lArm,
-            'z',
-            Math.sin(
-              time * 2.4,
-            ) *
-              0.04,
-            5,
-            dt,
-          );
-
-          addRotation(
-            bones.rArm,
-            'z',
-            -Math.sin(
-              time * 2.4,
-            ) *
-              0.04,
-            5,
-            dt,
-          );
-        }
       }
 
       if (!nativeMotion && gesture !== 'idle') {
