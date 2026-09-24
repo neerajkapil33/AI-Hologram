@@ -1739,6 +1739,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
        * PROCEDURAL BODY MOTION
        */
       if (bones && !nativeMotion) {
+        // A command can arrive before the FBX finishes loading. Create the
+        // workstation lazily once the avatar frame exists, never on startup.
+        if (!furniture && avatarFrame && ['sit-chair', 'sit-chair-human', 'hold-chair', 'read-book', 'write-notepad', 'study-write', 'clear-object-side'].includes(gesture)) {
+          ensureFurniture();
+        }
+
         /*
          * Procedural fallback is deliberately conservative. The FBX's own
          * authored clips are preferred because arbitrary rigs do not share
