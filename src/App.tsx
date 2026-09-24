@@ -24,6 +24,8 @@ function App() {
   const [liveRoom, setLiveRoom] = useState<LiveRoom | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const [spatial, setSpatial] = useState(false);
+  const [commandTab, setCommandTab] = useState<'command' | 'quick'>('command');
+  const [commandText, setCommandText] = useState('');
 
   const command = (c: AvatarCommand) => apiRef.current?.command(c);
 
@@ -140,6 +142,20 @@ function App() {
     </button>
   );
 
+  const issueMotorCommand = (text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    command({ type: 'gesture', value: clean });
+    setStatus(`MOTOR BRAIN • COMMAND • ${clean.toUpperCase()}`);
+    setCommandText('');
+  };
+
+  const quickCommand = (label: string, value: string) => (
+    <button type="button" className="avatar-control" onClick={() => issueMotorCommand(value)}>
+      <span>{label}</span>
+    </button>
+  );
+
   return <main className="avatar-console">
     <div className="avatar-backdrop" />
     <section className="avatar-main">
@@ -167,6 +183,37 @@ function App() {
       </div>
       <div className="control-group"><div className="control-label">BODY & LEGS TESTS</div>
         {action('Idle / Breathe', 'idle')}{action('Nod', 'nod')}{action('Shrug', 'shrug')}{action('Walk', 'walk')}{action('Run', 'run')}{action('Jump', 'jump')}{action('Sit', 'sit')}{action('Stand', 'stand')}{action('Full Body', 'full-body')}{action('Turn 45°', 'rotate')}{action('Face Front', 'front')}
+      </div>
+      <div className="control-group">
+        <div className="control-label">MOTOR BRAIN • COMMAND CENTER</div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          <button type="button" className={`avatar-control ${commandTab === 'command' ? 'active' : ''}`} onClick={() => setCommandTab('command')}>COMMAND</button>
+          <button type="button" className={`avatar-control ${commandTab === 'quick' ? 'active' : ''}`} onClick={() => setCommandTab('quick')}>QUICK ORDERS</button>
+        </div>
+        {commandTab === 'command' ? (
+          <div className="reply-row">
+            <input
+              value={commandText}
+              placeholder="e.g. Sit on the chair"
+              aria-label="Motor command"
+              onChange={(e) => setCommandText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') issueMotorCommand(commandText); }}
+            />
+            <button type="button" className="avatar-control active" onClick={() => issueMotorCommand(commandText)}>EXECUTE</button>
+          </div>
+        ) : (
+          <>
+            {quickCommand('Sit on chair', 'sit on chair')}
+            {quickCommand('Stand', 'stand up')}
+            {quickCommand('Find chair', 'find chair')}
+            {quickCommand('Hold chair & sit', 'hold chair and sit on chair')}
+            {quickCommand('Sit upright', 'sit upright')}
+            {quickCommand('Rest posture', 'rest')}
+          </>
+        )}
+        <small style={{ display: 'block', marginTop: 8, opacity: 0.7 }}>
+          Goal → locate object → approach → contact → posture → settle.
+        </small>
       </div>
       <div className="control-group"><div className="control-label">VOICE</div>
         <button type="button" className={`avatar-control ${listening ? 'active' : ''}`} onClick={() => { if (listening) stopListening(); else startListening(); }}>{listening ? 'Stop Speaking' : '🎙 Speak'}</button>
