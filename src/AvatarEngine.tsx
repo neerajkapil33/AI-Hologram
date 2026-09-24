@@ -460,8 +460,20 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
     const expressionMorphs: Morph[] = [];
-    // Expression references supplied by the user: neutral, natural smile/teeth,
-    // open-mouth laugh/speech, rounded O-mouth, and broad grin.
+    // Facial reference calibration: these semantic buckets are populated from
+    // the FBX's own morphTargetDictionary. No second face mesh is introduced.
+    const faceMorphSets: Record<string, Morph[]> = {
+      smile: [],
+      teeth: [],
+      mouthOpen: [],
+      mouthRound: [],
+      browUp: [],
+      browDown: [],
+      eyeWide: [],
+      cheek: [],
+      mouthDown: [],
+      mouthPress: [],
+    };
     let facialPreset = 'neutral';
     const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
     const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
@@ -1370,11 +1382,45 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               }
 
               if (
-                /smile|happy|sad|frown|brow|cheek|mouthsmile|lipcorner/.test(
+                /smile|happy|sad|frown|brow|cheek|mouthsmile|lipcorner|teeth|jaw|pucker|round|open/.test(
                   normalized,
                 )
               ) {
                 expressionMorphs.push(item);
+              }
+
+              // Calibrate each available FBX facial target once at load time.
+              // Names vary between FBX exports, so use a deliberately broad
+              // semantic vocabulary while keeping categories independent.
+              if (/smile|happy|mouthsmile|lipcornerup|mouthcornerup/.test(normalized)) {
+                faceMorphSets.smile.push(item);
+              }
+              if (/teeth|upperteeth|lowerteeth|tooth/.test(normalized)) {
+                faceMorphSets.teeth.push(item);
+              }
+              if (/mouthopen|jawopen|viseme|phoneme|vowel|^aa$|^ah$|^ao$|^oh$|^uh$|talk|speech/.test(normalized)) {
+                faceMorphSets.mouthOpen.push(item);
+              }
+              if (/pucker|round|lipround|lippucker|^oo$|^oh$|^ou$/.test(normalized)) {
+                faceMorphSets.mouthRound.push(item);
+              }
+              if (/browraise|browup|browinnerup|forehead|eyebrowup/.test(normalized)) {
+                faceMorphSets.browUp.push(item);
+              }
+              if (/browdown|browsqueeze|browlower|furrow|browpress/.test(normalized)) {
+                faceMorphSets.browDown.push(item);
+              }
+              if (/eyewide|eyeopen|wideeye/.test(normalized)) {
+                faceMorphSets.eyeWide.push(item);
+              }
+              if (/cheek|cheekraise|squint/.test(normalized)) {
+                faceMorphSets.cheek.push(item);
+              }
+              if (/sad|frown|mouthdown|lipcornerdown|mouthcornerdown/.test(normalized)) {
+                faceMorphSets.mouthDown.push(item);
+              }
+              if (/mouthpress|lippress|lippresser|lipcompress|jawclench/.test(normalized)) {
+                faceMorphSets.mouthPress.push(item);
               }
             });
           }
@@ -1402,6 +1448,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           fingerBones.left.push(...leftHandFingerBones);
           fingerBones.right.push(...rightHandFingerBones);
         }
+
+        console.info('[Neeraj Avatar] FACIAL CALIBRATION', {
+          morphNames: morphs.map((m) => m.name),
+          buckets: Object.fromEntries(
+            Object.entries(faceMorphSets).map(([key, items]) => [key, items.map((m) => m.name)]),
+          ),
+          identityMode: 'FBX facial morphs only',
+          referenceExpressions: ['neutral', 'smile', 'grin', 'laugh', 'o-mouth', 'surprised'],
+        });
 
         console.info('[Neeraj Avatar] MOTION ROOT CAUSE CHECK', { nativeClips: loaded.animations.map((c) => c.name), bones, fingerCount: fingerBones.left.length + fingerBones.right.length,
           morphCount: morphs.length,
@@ -1664,52 +1719,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
       setMorph(mouthTargets, mouth, 0.72);
 
-      // Facial reference-morph layer. Only morphs already embedded in the
-      // FBX are used; the uploaded reference photos guide the expression
-      // proportions but are never rendered into the avatar.
-      const faceTargetRules: Record<string, { re: RegExp; weight: number }[]> = {
-        neutral: [],
-        smile: [
-          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.34 },
-          { re: /teethshow|teeth|upperteeth/, weight: 0.16 },
-        ],
-        grin: [
-          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.56 },
-          { re: /teethshow|teeth|upperteeth/, weight: 0.42 },
-        ],
-        laugh: [
-          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.48 },
-          { re: /mouthopen|jawopen|open|laugh|aa|ah/, weight: 0.56 },
-          { re: /teethshow|teeth|upperteeth/, weight: 0.30 },
-        ],
-        'o-mouth': [
-          { re: /mouthopen|jawopen|open|oh|ao|oo|uh|round|pucker/, weight: 0.54 },
-          { re: /lipround|lippucker|pucker|round/, weight: 0.46 },
-        ],
-        surprised: [
-          { re: /surprise|wide|browraise|browup|forehead/, weight: 0.42 },
-          { re: /mouthopen|jawopen|open|oh|ao/, weight: 0.38 },
-        ],
-        sad: [
-          { re: /sad|frown|mouthdown|lipcornerdown|browinnerup/, weight: 0.28 },
-        ],
-        thinking: [
-          { re: /brow|confus|think|frown/, weight: 0.22 },
-        ],
-        firm: [
-          { re: /angry|frown|brow|tension|press/, weight: 0.25 },
-        ],
+      // Reference-expression calibration. Each bucket uses the FBX's own
+      // morph targets and blends gradually toward the requested expression.
+      setMorph(expressionMorphs, 0, 0.16);
+
+      const faceWeights: Record<string, Record<string, number>> = {
+        neutral: {},
+        smile: { smile: 0.34, teeth: 0.16, cheek: 0.16 },
+        grin: { smile: 0.56, teeth: 0.42, cheek: 0.28 },
+        laugh: { smile: 0.48, teeth: 0.30, cheek: 0.24, mouthOpen: 0.56 },
+        'o-mouth': { mouthOpen: 0.54, mouthRound: 0.46 },
+        surprised: { browUp: 0.42, eyeWide: 0.38, mouthOpen: 0.38 },
+        sad: { mouthDown: 0.28, browUp: 0.12 },
+        thinking: { browUp: 0.18, browDown: 0.12 },
+        firm: { browDown: 0.25, mouthPress: 0.20 },
       };
 
-      setMorph(expressionMorphs, 0, 0.16);
-      const presetRules = faceTargetRules[facialPreset] ?? faceTargetRules.neutral;
-      for (const rule of presetRules) {
-        setMorph(
-          expressionMorphs.filter((item) => rule.re.test(norm(item.name))),
-          rule.weight,
-          0.20,
-        );
-      }
+      const weights = faceWeights[facialPreset] ?? faceWeights.neutral;
+      Object.entries(weights).forEach(([bucket, weight]) => {
+        setMorph(faceMorphSets[bucket] ?? [], weight, 0.20);
+      });
 
       if (facialPreset === 'laugh') {
         targetMouth = Math.max(targetMouth, 0.38 + Math.abs(Math.sin(time * 7)) * 0.18);
