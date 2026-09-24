@@ -1792,6 +1792,19 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         setMorph(faceMorphSets[bucket] ?? [], weight, 0.20);
       });
 
+      // Speech uses the real returned Neeraj voice audio as the timing clock.
+      // Blend mouth-open with a small rounded-vowel cycle, while the tongue
+      // remains forced to zero. This gives speaking/laughing/O-mouth behavior
+      // without exposing the tongue through the teeth.
+      if (speaking) {
+        const vowelCycle = 0.5 + 0.5 * Math.sin(time * 4.6);
+        setMorph(faceMorphSets.mouthOpen, Math.max(0.08, mouth * 0.55), 0.24);
+        setMorph(faceMorphSets.mouthRound, mouth * vowelCycle * 0.28, 0.20);
+      } else if (facialPreset === 'o-mouth') {
+        setMorph(faceMorphSets.mouthRound, 0.48, 0.24);
+        setMorph(faceMorphSets.mouthOpen, 0.52, 0.24);
+      }
+
       if (facialPreset === 'laugh') {
         targetMouth = Math.max(targetMouth, 0.38 + Math.abs(Math.sin(time * 7)) * 0.18);
       }
@@ -2933,9 +2946,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
             // Seated anatomy: thigh is parallel to the floor and the lower leg
             // drops vertically from the knee to the planted ankle.
-            const thighLengthL = Math.max(leftHip.distanceTo(restWorldPositions.get(bones.lCalf!) ?? leftHip), h * 0.12);
-            const thighLengthR = Math.max(rightHip.distanceTo(restWorldPositions.get(bones.rCalf!) ?? rightHip), h * 0.12);
-            const forward = new THREE.Vector3(0, 0, 1);
+            const restLeftHip = restWorldPositions.get(bones.lThigh!) ?? leftHip;
+            const restRightHip = restWorldPositions.get(bones.rThigh!) ?? rightHip;
+            const restLeftKnee = restWorldPositions.get(bones.lCalf!) ?? restLeftHip;
+            const restRightKnee = restWorldPositions.get(bones.rCalf!) ?? restRightHip;
+            const thighLengthL = Math.max(restLeftHip.distanceTo(restLeftKnee), h * 0.12);
+            const thighLengthR = Math.max(restRightHip.distanceTo(restRightKnee), h * 0.12);
+            const forward = locomotionVector.lengthSq() > 0.01 ? locomotionVector.clone().normalize() : new THREE.Vector3(0, 0, 1);
             const leftKnee = leftHip.clone().add(forward.clone().multiplyScalar(thighLengthL * 0.92));
             const rightKnee = rightHip.clone().add(forward.clone().multiplyScalar(thighLengthR * 0.92));
 
