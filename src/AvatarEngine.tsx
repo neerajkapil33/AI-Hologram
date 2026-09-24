@@ -894,6 +894,16 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const seatD = scale * 0.34;
       makeBox(seatW, scale * 0.055, seatD, seat).position.y = seatH;
       makeBox(seatW, scale * 0.48, scale * 0.055, seat).position.set(0, seatH + scale * 0.24, -seatD * 0.43);
+      // Armrests are interaction affordances: the sit command reaches to them
+      // before lowering the pelvis, then keeps both hands supported after contact.
+      const armrestY = seatH + scale * 0.11;
+      for (const x of [-1, 1]) {
+        makeBox(scale * 0.055, scale * 0.055, seatD * 0.78, seat).position.set(
+          x * (seatW * 0.60),
+          armrestY,
+          -scale * 0.015,
+        );
+      }
       const legH = seatH;
       for (const x of [-1, 1]) {
         for (const z of [-1, 1]) {
@@ -924,8 +934,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
       // Workstation is placed in front of the chair so seated writing uses
       // a natural hip-to-elbow reach rather than twisting sideways.
-      chair.position.set(-scale * 0.42, 0, -scale * 0.06);
-      table.position.set(-scale * 0.42, 0, scale * 0.48);
+      // Furniture lives beside the avatar, never directly in front of it.
+      // The chair is to the avatar's left; the table sits further left.
+      chair.position.set(-scale * 0.78, 0, -scale * 0.02);
+      table.position.set(-scale * 1.22, 0, scale * 0.02);
 
       const book = new THREE.Group();
       book.name = 'AURA_BOOK';
@@ -1089,9 +1101,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'back-bend';
       } else if (/\b(bend|bending|bow|bowing|lean-forward|leaning-forward)\b/.test(value)) {
         gesture = 'bend';
-      } else if (/\b(go-to-chair|sit-on-chair|sit-chair|go-sit-chair|chair)\b/.test(value) ||
+      } else if (/\b(find-chair|go-to-chair|sit-on-chair|sit-chair|go-sit-chair|chair)\b/.test(value) ||
                  /\b(go|walk|move).*\b(sit|chair)\b/.test(value)) {
-        gesture = 'sit-chair';
+        gesture = 'sit-chair-human';
       } else if (/\b(sit|sitting|sit-down|sitdown)\b/.test(value)) {
         gesture = 'sit';
       } else if (/\b(stand|standing|stand-up|standup|rise|get-up)\b/.test(value)) {
@@ -2526,7 +2538,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         /*
          * FULL BODY
          */
-        else if (gesture === 'sit' || gesture === 'sit-chair') {
+        else if (gesture === 'sit' || gesture === 'sit-chair' || gesture === 'sit-chair-human') {
           const elapsed = now - gestureStarted;
           const chairMode = gesture === 'sit-chair';
           const t = THREE.MathUtils.clamp(elapsed / (chairMode ? 3600 : 2600), 0, 1);
@@ -2537,10 +2549,34 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             if (chair) {
               const chairWorld = new THREE.Vector3();
               chair.getWorldPosition(chairWorld);
-              const approach = smooth(THREE.MathUtils.clamp(elapsed / 1400, 0, 1));
-              const localTarget = new THREE.Vector3(chairWorld.x + 0.36, root.position.y, chairWorld.z + 0.18);
-              root.position.x = THREE.MathUtils.lerp(root.position.x, localTarget.x, 1 - Math.exp(-5 * dt) * (1 - approach));
-              root.position.z = THREE.MathUtils.lerp(root.position.z, localTarget.z, 1 - Math.exp(-5 * dt) * (1 - approach));
+              const approach = smooth(THREE.MathUtils.clamp(elapsed / 1500, 0, 1));
+              // Approach the chair from its open/front side, then lower the
+              // pelvis over the seat. No teleporting or sideways snap.
+              const approachTarget = new THREE.Vector3(
+                chairWorld.x,
+                root.position.y,
+                chairWorld.z + (avatarFrame?.height ?? 1) * 0.38,
+              );
+              const moveAlpha = 1 - Math.exp(-5 * dt) * (1 - approach);
+              root.position.x = THREE.MathUtils.lerp(root.position.x, approachTarget.x, moveAlpha);
+              root.position.z = THREE.MathUtils.lerp(root.position.z, approachTarget.z, moveAlpha);
+
+              // Motor sequence: locate chair -> reach/hold armrests -> descend.
+              // Both hands remain coupled to the chair so the upper body is
+              // supported instead of floating independently.
+              const armHeight = (avatarFrame?.height ?? 1) * 0.56;
+              const armSpan = (avatarFrame?.height ?? 1) * 0.20;
+              const leftHandTarget = chairWorld.clone().add(new THREE.Vector3(-armSpan, armHeight, 0.02));
+              const rightHandTarget = chairWorld.clone().add(new THREE.Vector3(armSpan, armHeight, 0.02));
+              const leftShoulder = new THREE.Vector3();
+              const rightShoulder = new THREE.Vector3();
+              bones.lShoulder?.getWorldPosition(leftShoulder);
+              bones.rShoulder?.getWorldPosition(rightShoulder);
+              const handPole = new THREE.Vector3(0, 0, -1);
+              solveTwoBoneIK(bones.lArm, bones.lFore, bones.lHand, leftHandTarget, leftShoulder.clone().add(handPole), 10, dt);
+              solveTwoBoneIK(bones.rArm, bones.rFore, bones.rHand, rightHandTarget, rightShoulder.clone().add(handPole), 10, dt);
+              fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.18, 10, dt));
+              fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.18, 10, dt));
             }
           }
 
@@ -2550,9 +2586,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const sitAmount = smooth(t);
           const hip = new THREE.Vector3();
           bones.lThigh?.getWorldPosition(hip);
-          const seatY = (avatarFrame?.height ?? 1) * 0.43;
+          const seatY = (avatarFrame?.height ?? 1) * 0.45;
           const footY = restWorldPositions.get(bones.lFoot!)?.y ?? 0;
-          const rootDrop = THREE.MathUtils.clamp((seatY - footY) * 0.16, 0.06, (avatarFrame?.height ?? 1) * 0.10);
+          // The pelvis should settle onto the seat while the feet remain on
+          // the floor. The descent is gradual and synchronized with hip/knee
+          // flexion rather than being a simple vertical drop.
+          const rootDrop = THREE.MathUtils.clamp((seatY - footY) * 0.22, 0.09, (avatarFrame?.height ?? 1) * 0.16);
           root.position.y = -rootDrop * sitAmount;
 
           const leftFoot = restWorldPositions.get(bones.lFoot!);
@@ -2589,6 +2628,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.hips, 'x', -0.08 * sitAmount, 6, dt);
           restoreBone(bones.lFoot, 8, dt);
           restoreBone(bones.rFoot, 8, dt);
+
+          if (chairMode && furniture) {
+            const chair = furniture.getObjectByName('AURA_CHAIR');
+            if (chair) {
+              const chairWorld = new THREE.Vector3();
+              chair.getWorldPosition(chairWorld);
+              const armHeight = (avatarFrame?.height ?? 1) * 0.56;
+              const armSpan = (avatarFrame?.height ?? 1) * 0.20;
+              const leftHandTarget = chairWorld.clone().add(new THREE.Vector3(-armSpan, armHeight, 0.02));
+              const rightHandTarget = chairWorld.clone().add(new THREE.Vector3(armSpan, armHeight, 0.02));
+              const leftShoulder = new THREE.Vector3();
+              const rightShoulder = new THREE.Vector3();
+              bones.lShoulder?.getWorldPosition(leftShoulder);
+              bones.rShoulder?.getWorldPosition(rightShoulder);
+              solveTwoBoneIK(bones.lArm, bones.lFore, bones.lHand, leftHandTarget, leftShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 8, dt);
+              solveTwoBoneIK(bones.rArm, bones.rFore, bones.rHand, rightHandTarget, rightShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 8, dt);
+              fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.16, 8, dt));
+              fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.16, 8, dt));
+            }
+          }
         }
 
         else if (gesture === 'stand') {
@@ -2682,7 +2741,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           'chin-touch': 1800,
           clothes: 1800,
           sit: 2600,
-          'sit-chair': 3600,
+          'sit-chair': 4200,
+          'sit-chair-human': 4200,
           'read-book': 5200,
           'study-write': 11400,
           'write-notepad': 6200,
