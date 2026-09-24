@@ -20,6 +20,8 @@ type BoneMap = {
   spine1: THREE.Bone | null;
   spine2: THREE.Bone | null;
   neck: THREE.Bone | null;
+  neck1: THREE.Bone | null;
+  neck2: THREE.Bone | null;
   head: THREE.Bone | null;
 
   lShoulder: THREE.Bone | null;
@@ -81,6 +83,8 @@ function findBones(root: THREE.Object3D): BoneMap {
     spine1: null,
     spine2: null,
     neck: null,
+    neck1: null,
+    neck2: null,
     head: null,
 
     lShoulder: null,
@@ -118,6 +122,8 @@ function findBones(root: THREE.Object3D): BoneMap {
   bones.spine1 = findExactBone(root, ['Spine1']);
   bones.spine2 = findExactBone(root, ['Spine2']);
   bones.neck = findExactBone(root, ['Neck']);
+  bones.neck1 = findExactBone(root, ['Neck1']);
+  bones.neck2 = findExactBone(root, ['Neck2']);
   bones.head = findExactBone(root, ['Head']);
 
   bones.lShoulder = findExactBone(root, ['LeftShoulder']);
@@ -411,6 +417,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         map.rHand,
         map.head,
         map.neck,
+        map.neck1,
+        map.neck2,
         map.lEye,
         map.rEye,
       ].forEach((bone) =>
@@ -1077,9 +1085,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         );
 
       const openMouthMorphs = morphs.filter((item) =>
-        /viseme|mouthopen|jawopen|phoneme|^aa$|^ah$|^ao$|^oh$|^uh$/i.test(norm(item.name)),
+        /viseme|mouthopen|jawopen|phoneme|^aa$|^ah$|^ao$|^oh$|^uh$|open|vowel|talk|speech|lip/i.test(norm(item.name)),
       );
-      setMorph(openMouthMorphs, mouth, 0.58);
+      // Some exports name the facial keys simply "mouth" or "lip". If the
+      // FBX has facial morphs but no explicit open-mouth key, drive the facial
+      // morph set rather than leaving the lips permanently sealed.
+      const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
+      setMorph(mouthTargets, mouth, 0.72);
 
       if (expression === 'smile') {
         const smileTargets = expressionMorphs.filter((item) =>
@@ -1107,7 +1119,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
        * not frozen whenever a gesture is active.
        */
       if (bones && !nativeMotion) {
-        const attention = speaking ? 1 : 0.75;
+        const attention = speaking ? 1 : 0.85;
         if (now >= nextEyeShift) {
           eyeTargetX = (Math.random() * 2 - 1) * 0.055;
           eyeTargetY = (Math.random() * 2 - 1) * 0.032;
@@ -1116,10 +1128,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         eyeX = THREE.MathUtils.damp(eyeX, eyeTargetX, 14, dt);
         eyeY = THREE.MathUtils.damp(eyeY, eyeTargetY, 14, dt);
 
-        addRotation(bones.neck, 'y', Math.sin(time * 0.7) * 0.014 * attention, 5, dt);
-        addRotation(bones.neck, 'x', Math.sin(time * 0.85 + 0.7) * 0.010 * attention, 5, dt);
-        addRotation(bones.head, 'y', Math.sin(time * 0.9 + 1.1) * 0.028 * attention, 6, dt);
-        addRotation(bones.head, 'x', Math.sin(time * 0.72) * 0.014 * attention, 6, dt);
+        addRotation(bones.neck, 'y', Math.sin(time * 0.7) * 0.055 * attention, 5, dt);
+        addRotation(bones.neck1, 'y', Math.sin(time * 0.7 + 0.12) * 0.045 * attention, 5, dt);
+        addRotation(bones.neck2, 'y', Math.sin(time * 0.7 + 0.22) * 0.050 * attention, 5, dt);
+        addRotation(bones.head, 'y', Math.sin(time * 0.9 + 1.1) * 0.10 * attention, 6, dt);
+        addRotation(bones.neck, 'x', Math.sin(time * 0.85 + 0.7) * 0.035 * attention, 5, dt);
+        addRotation(bones.neck1, 'x', Math.sin(time * 0.85 + 0.8) * 0.025 * attention, 5, dt);
+        addRotation(bones.neck2, 'x', Math.sin(time * 0.85 + 0.9) * 0.028 * attention, 5, dt);
+        addRotation(bones.head, 'x', Math.sin(time * 0.72) * 0.070 * attention, 6, dt);
 
         addRotation(bones.lEye, 'y', eyeX, 14, dt);
         addRotation(bones.rEye, 'y', eyeX, 14, dt);
@@ -1185,16 +1201,20 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * HEAD / NECK DIRECTION TESTS
          */
         else if (/^look-(left|right|up|down)$/.test(gesture)) {
-          const horizontal = gesture === 'look-left' ? 0.28 : gesture === 'look-right' ? -0.28 : 0;
-          const vertical = gesture === 'look-up' ? -0.16 : gesture === 'look-down' ? 0.16 : 0;
+          const horizontal = gesture === 'look-left' ? 0.42 : gesture === 'look-right' ? -0.42 : 0;
+          const vertical = gesture === 'look-up' ? -0.24 : gesture === 'look-down' ? 0.24 : 0;
           addRotation(bones.lEye, 'y', horizontal, 12, dt);
           addRotation(bones.rEye, 'y', horizontal, 12, dt);
           addRotation(bones.lEye, 'x', vertical, 12, dt);
           addRotation(bones.rEye, 'x', vertical, 12, dt);
-          addRotation(bones.neck, 'y', horizontal * 0.30, 8, dt);
-          addRotation(bones.head, 'y', horizontal * 0.55, 9, dt);
-          addRotation(bones.neck, 'x', vertical * 0.30, 8, dt);
-          addRotation(bones.head, 'x', vertical * 0.55, 9, dt);
+          addRotation(bones.neck, 'y', horizontal * 0.18, 8, dt);
+          addRotation(bones.neck1, 'y', horizontal * 0.16, 8, dt);
+          addRotation(bones.neck2, 'y', horizontal * 0.18, 8, dt);
+          addRotation(bones.head, 'y', horizontal * 0.48, 9, dt);
+          addRotation(bones.neck, 'x', vertical * 0.18, 8, dt);
+          addRotation(bones.neck1, 'x', vertical * 0.14, 8, dt);
+          addRotation(bones.neck2, 'x', vertical * 0.16, 8, dt);
+          addRotation(bones.head, 'x', vertical * 0.48, 9, dt);
         }
 
         /*
@@ -1589,9 +1609,18 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.rCalf, 'x', rightKnee * (fast ? 0.72 : 0.52) * adaptiveProfile.leg, 16, dt);
           addRotation(bones.lFoot, 'x', -leftSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
           addRotation(bones.rFoot, 'x', -rightSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
-          addRotation(bones.lArm, 'z', -leftSwing * (fast ? 0.28 : 0.20), 12, dt);
-          addRotation(bones.rArm, 'z', -rightSwing * (fast ? 0.28 : 0.20), 12, dt);
-          addRotation(bones.spine, 'x', Math.abs(Math.sin(phase * 2)) * 0.025, 10, dt);
+          addRotation(bones.lShoulder, 'z', -leftSwing * (fast ? 0.12 : 0.08), 12, dt);
+          addRotation(bones.rShoulder, 'z', -rightSwing * (fast ? 0.12 : 0.08), 12, dt);
+          addRotation(bones.lArm, 'z', -leftSwing * (fast ? 0.42 : 0.30), 12, dt);
+          addRotation(bones.rArm, 'z', -rightSwing * (fast ? 0.42 : 0.30), 12, dt);
+          addRotation(bones.lFore, 'x', -leftSwing * (fast ? 0.20 : 0.12), 12, dt);
+          addRotation(bones.rFore, 'x', -rightSwing * (fast ? 0.20 : 0.12), 12, dt);
+          addRotation(bones.spine, 'x', Math.abs(Math.sin(phase * 2)) * 0.035, 10, dt);
+          addRotation(bones.spine1, 'x', Math.abs(Math.sin(phase * 2 + 0.4)) * 0.018, 10, dt);
+          // Natural pelvic counter-rotation keeps the stride from looking like
+          // a pair of disconnected legs.
+          addRotation(bones.hips, 'z', Math.sin(phase) * 0.035, 10, dt);
+          addRotation(bones.hips, 'y', Math.sin(phase + Math.PI / 2) * 0.025, 10, dt);
         }
 
         else if (gesture === 'jump') {
@@ -1599,12 +1628,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const arc = Math.sin(Math.PI * t);
           const crouch = t < 0.24 ? t / 0.24 : t > 0.76 ? (1 - t) / 0.24 : 0;
 
-          addRotation(bones.lThigh, 'x', -0.38 * crouch, 10, dt);
-          addRotation(bones.rThigh, 'x', -0.38 * crouch, 10, dt);
-          addRotation(bones.lCalf, 'x', 0.55 * crouch, 10, dt);
-          addRotation(bones.rCalf, 'x', 0.55 * crouch, 10, dt);
-          addRotation(bones.lFoot, 'x', -0.18 * crouch, 10, dt);
-          addRotation(bones.rFoot, 'x', -0.18 * crouch, 10, dt);
+          addRotation(bones.hips, 'x', -0.10 * crouch, 10, dt);
+          addRotation(bones.lThigh, 'x', -0.62 * crouch, 10, dt);
+          addRotation(bones.rThigh, 'x', -0.62 * crouch, 10, dt);
+          addRotation(bones.lCalf, 'x', 1.05 * crouch, 10, dt);
+          addRotation(bones.rCalf, 'x', 1.05 * crouch, 10, dt);
+          addRotation(bones.lFoot, 'x', -0.24 * crouch, 10, dt);
+          addRotation(bones.rFoot, 'x', -0.24 * crouch, 10, dt);
+          addRotation(bones.lArm, 'z', -0.28 * arc, 10, dt);
+          addRotation(bones.rArm, 'z', 0.28 * arc, 10, dt);
           root.position.y = arc * 0.22;
         }
 
