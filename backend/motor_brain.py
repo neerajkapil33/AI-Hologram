@@ -52,6 +52,20 @@ class MotorBrain:
             return MotorPlan("sit-chair-human", "approach_contact", "chair", "seated", "bilateral_armrests", "both_hands_support", "feet_flat", "upright", "chair", 4200)
         if self._match(t, r"\b(find|locate|go to|sit on|sit in)\b.*\bchair\b|\bchair\b.*\b(sit|seat)\b"):
             return MotorPlan("sit-chair-human", "locate_approach", "chair", "seated", "bilateral_armrests", "both_hands_support", "feet_flat", "upright", "chair", 4200)
+        if self._match(t, r"\b(namaste|namaskar|joined hands?|palms? together)\b"):
+            return MotorPlan("namaste", "greet", "person", "standing", "none", "palms_together", "balanced", "upright", "person", 2400)
+        if self._match(t, r"\b(hello|greet|greeting|welcome)\b"):
+            return MotorPlan("greet", "greet", "person", "standing", "none", "wave", "balanced", "upright", "person", 1800)
+        if self._match(t, r"\b(one leg|stand on one leg|single leg|balance on one leg)\b"):
+            return MotorPlan("one-leg", "balance", "floor", "standing", "none", "balance", "one_leg_support", "upright", "forward", 3200)
+        if self._match(t, r"\b(jump|leap)\b.*\b(forward|front|ahead)\b"):
+            return MotorPlan("jump-forward", "locomotion", "floor", "standing", "none", "natural_swing", "balanced", "forward", "forward", 1400)
+        if self._match(t, r"\b(walk|go|move)\b.*\b(back|backward|behind)\b"):
+            return MotorPlan("walk-back", "locomotion", "environment", "standing", "none", "natural_swing", "alternating", "upright", "backward", 3200)
+        if self._match(t, r"\b(walk|go|move)\b.*\b(front|forward|ahead)\b"):
+            return MotorPlan("walk-forward", "locomotion", "environment", "standing", "none", "natural_swing", "alternating", "upright", "forward", 3200)
+        if self._match(t, r"\b(move|put|place|clear)\b.*\b(table|chair|object|furniture)\b.*\b(side|aside|way)\b"):
+            return MotorPlan("clear-object-side", "environment", "object", "standing", "none", "rest", "balanced", "upright", "object", 2200)
         if self._match(t, r"\bstand\b|\bget up\b|\brise\b"):
             return MotorPlan("stand", "stabilize", "floor", "standing", "none", "rest", "balanced", "upright", "forward", 2600)
         if self._match(t, r"\bwalk\b|\bmove\b|\bgo\b"):
