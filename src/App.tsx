@@ -209,6 +209,14 @@ function App() {
             {quickCommand('Hold chair & sit', 'hold chair and sit on chair')}
             {quickCommand('Sit upright', 'sit upright')}
             {quickCommand('Rest posture', 'rest')}
+            {quickCommand('Walk North', 'walk north')}
+            {quickCommand('Walk East', 'walk east')}
+            {quickCommand('Walk South', 'walk south')}
+            {quickCommand('Walk West', 'walk west')}
+            {quickCommand('Run North', 'run north')}
+            {quickCommand('Run East', 'run east')}
+            {quickCommand('Run South', 'run south')}
+            {quickCommand('Run West', 'run west')}
           </>
         )}
         <small style={{ display: 'block', marginTop: 8, opacity: 0.7 }}>
