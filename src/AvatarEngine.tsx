@@ -463,70 +463,17 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
     const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
 
-    type LimbAxis = { axis: 'x' | 'y' | 'z'; sign: 1 | -1 };
-    const limbAxes = new Map<THREE.Bone, { flex: LimbAxis; lift?: LimbAxis }>();
-
-    const chooseLocalAxis = (
-      bone: THREE.Bone | null,
-      worldDirection: THREE.Vector3,
-    ): LimbAxis | null => {
-      if (!bone?.parent) return null;
-      const parentWorld = new THREE.Quaternion();
-      bone.parent.getWorldQuaternion(parentWorld);
-      parentWorld.invert();
-      const target = worldDirection.clone().normalize().applyQuaternion(parentWorld);
-      const axes: Array<['x' | 'y' | 'z', THREE.Vector3]> = [
-        ['x', new THREE.Vector3(1, 0, 0)],
-        ['y', new THREE.Vector3(0, 1, 0)],
-        ['z', new THREE.Vector3(0, 0, 1)],
-      ];
-      let best: LimbAxis = { axis: 'x', sign: 1 };
-      let score = -Infinity;
-      for (const [axis, vector] of axes) {
-        const dot = vector.dot(target);
-        if (Math.abs(dot) > score) {
-          score = Math.abs(dot);
-          best = { axis, sign: dot >= 0 ? 1 : -1 };
-        }
-      }
-      return best;
+    type RestBonePose = {
+      worldQuaternion: THREE.Quaternion;
+      worldDirection: THREE.Vector3;
     };
 
-    const calibrateLimbAxes = (root: THREE.Object3D, map: BoneMap) => {
-      root.updateMatrixWorld(true);
-      const hips = new THREE.Vector3();
-      const spine = new THREE.Vector3();
-      const leftThigh = new THREE.Vector3();
-      const rightThigh = new THREE.Vector3();
-      map.hips?.getWorldPosition(hips);
-      map.spine?.getWorldPosition(spine);
-      map.lThigh?.getWorldPosition(leftThigh);
-      map.rThigh?.getWorldPosition(rightThigh);
-
-      const up = spine.sub(hips).normalize();
-      const right = rightThigh.sub(leftThigh).normalize();
-      if (!up.lengthSq() || !right.lengthSq()) return;
-
-      const forward = new THREE.Vector3().crossVectors(right, up).normalize();
-      const flexBones = [
-        map.hips, map.spine, map.spine1,
-        map.lThigh, map.rThigh, map.lCalf, map.rCalf,
-        map.lFoot, map.rFoot, map.lFore, map.rFore,
-      ];
-      flexBones.forEach((bone) => {
-        const flex = chooseLocalAxis(bone, right);
-        if (bone && flex) limbAxes.set(bone, { flex });
-      });
-
-      const liftBones = [map.lShoulder, map.rShoulder, map.lArm, map.rArm];
-      liftBones.forEach((bone) => {
-        if (!bone) return;
-        const existing = limbAxes.get(bone);
-        const flex = existing?.flex ?? chooseLocalAxis(bone, right);
-        const lift = chooseLocalAxis(bone, forward);
-        if (flex && lift) limbAxes.set(bone, { flex, lift });
-      });
-    };
+    // The FBX is not guaranteed to use X as the bend axis. Instead of
+    // guessing an Euler axis, capture each deform bone's real rest-pose
+    // direction and later aim that bone toward a desired world direction.
+    // This keeps the same AvatarEngine as the single body controller while
+    // making arm/leg motion independent of the FBX local-axis convention.
+    const restPose = new Map<THREE.Bone, RestBonePose>();
 
     const originalRotation = new Map<
       THREE.Bone,
@@ -553,6 +500,36 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         if (value instanceof THREE.Bone) {
           rememberBone(value);
         }
+      });
+    };
+
+    const captureRestPose = (root: THREE.Object3D) => {
+      root.updateMatrixWorld(true);
+      root.traverse((object) => {
+        if (!(object instanceof THREE.Bone)) return;
+
+        const child = object.children.find(
+          (candidate): candidate is THREE.Bone =>
+            candidate instanceof THREE.Bone,
+        );
+
+        if (!child) return;
+
+        const start = new THREE.Vector3();
+        const end = new THREE.Vector3();
+        object.getWorldPosition(start);
+        child.getWorldPosition(end);
+
+        const direction = end.sub(start);
+        if (direction.lengthSq() < 0.0001) return;
+
+        const worldQuaternion = new THREE.Quaternion();
+        object.getWorldQuaternion(worldQuaternion);
+
+        restPose.set(object, {
+          worldQuaternion: worldQuaternion.clone(),
+          worldDirection: direction.normalize(),
+        });
       });
     };
 
@@ -585,26 +562,55 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const base = originalRotation.get(bone);
       if (!base) return;
 
-      let targetAxis = axis;
-      let targetAmount = amount;
-      const calibrated = limbAxes.get(bone);
-
-      if (calibrated) {
-        if (axis === 'x') {
-          targetAxis = calibrated.flex.axis;
-          targetAmount = amount * calibrated.flex.sign;
-        } else if (axis === 'z' && calibrated.lift) {
-          targetAxis = calibrated.lift.axis;
-          targetAmount = amount * calibrated.lift.sign;
-        }
-      }
-
       dampRotation(
         bone,
-        targetAxis,
-        base[targetAxis] + targetAmount,
+        axis,
+        base[axis] + amount,
         speed,
         dt,
+      );
+    };
+
+    const poseBoneToward = (
+      bone: THREE.Bone | null,
+      worldDirection: THREE.Vector3,
+      speed: number,
+      dt: number,
+    ) => {
+      if (!bone || !bone.parent) return;
+
+      const rest = restPose.get(bone);
+      if (!rest) return;
+
+      const direction = worldDirection.clone().normalize();
+      if (direction.lengthSq() < 0.0001) return;
+
+      // Rotate the rest-pose bone direction into the requested direction,
+      // then convert the resulting world quaternion back into the bone's
+      // parent-local space.
+      const delta = new THREE.Quaternion().setFromUnitVectors(
+        rest.worldDirection,
+        direction,
+      );
+      const targetWorld = delta.multiply(rest.worldQuaternion.clone());
+      const parentWorld = new THREE.Quaternion();
+      bone.parent.getWorldQuaternion(parentWorld);
+
+      const targetLocal = parentWorld
+        .invert()
+        .multiply(targetWorld);
+
+      const alpha = 1 - Math.exp(-speed * Math.max(dt, 0.001));
+      bone.quaternion.slerp(targetLocal, THREE.MathUtils.clamp(alpha, 0, 1));
+    };
+
+    const poseChain = (
+      chain: Array<{ bone: THREE.Bone | null; direction: THREE.Vector3 }>,
+      speed: number,
+      dt: number,
+    ) => {
+      chain.forEach(({ bone, direction }) =>
+        poseBoneToward(bone, direction, speed, dt),
       );
     };
 
@@ -1112,7 +1118,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         });
 
         bones = findBones(loaded);
-        calibrateLimbAxes(loaded, bones);
+        captureRestPose(loaded);
 
         // Drive only fingers that actually descend from the resolved hand
         // bones. This prevents unrelated/parallel FBX finger branches from
@@ -1606,14 +1612,24 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const left = gesture !== 'right-arm-up';
           const right = gesture !== 'left-arm-up';
           if (left) {
-            addRotation(bones.lShoulder, 'z', 0.72, 10, dt);
-            addRotation(bones.lArm, 'z', 0.82, 10, dt);
-            addRotation(bones.lFore, 'x', -0.35, 10, dt);
+            poseChain(
+              [
+                { bone: bones.lArm, direction: new THREE.Vector3(-0.22, 0.90, 0.32) },
+                { bone: bones.lFore, direction: new THREE.Vector3(-0.08, 0.96, 0.24) },
+              ],
+              12,
+              dt,
+            );
           }
           if (right) {
-            addRotation(bones.rShoulder, 'z', -0.72, 10, dt);
-            addRotation(bones.rArm, 'z', -0.82, 10, dt);
-            addRotation(bones.rFore, 'x', -0.35, 10, dt);
+            poseChain(
+              [
+                { bone: bones.rArm, direction: new THREE.Vector3(0.22, 0.90, 0.32) },
+                { bone: bones.rFore, direction: new THREE.Vector3(0.08, 0.96, 0.24) },
+              ],
+              12,
+              dt,
+            );
           }
         }
         else if (gesture === 'cross-arms') {
@@ -1649,35 +1665,38 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
+          const wavePhase = time * 8;
+          poseChain(
+            [
+              {
+                bone: bones.rArm,
+                direction: new THREE.Vector3(0.18, 0.92, 0.18),
+              },
+              {
+                bone: bones.rFore,
+                direction: new THREE.Vector3(0.05, 0.98, 0.12),
+              },
+            ],
+            12,
+            dt,
+          );
+
+          // Wrist rotation is intentionally separate: waving needs a
+          // visible side-to-side hand angle after the arm is raised.
           addRotation(
-            bones.rShoulder,
+            bones.rHand,
+            'y',
+            Math.sin(wavePhase) * 0.34 * adaptiveProfile.hand,
+            14,
+            dt,
+          );
+          addRotation(
+            bones.rHand,
             'z',
-            -0.08,
-            10,
+            Math.sin(wavePhase + Math.PI / 2) * 0.18 * adaptiveProfile.hand,
+            14,
             dt,
           );
-
-          addRotation(
-            bones.rArm,
-            'z',
-            -0.42,
-            10,
-            dt,
-          );
-
-          addRotation(
-            bones.rArm,
-            'x',
-            -0.08,
-            10,
-            dt,
-          );
-
-          addRotation(bones.rFore, 'x', -0.52, 10, dt);
-          addRotation(bones.rFore, 'z', Math.sin(time * 7) * 0.12, 12, dt);
-
-          addRotation(bones.rHand, 'z', Math.sin(time * 9) * 0.16 * adaptiveProfile.hand, 12, dt);
-          addRotation(bones.rHand, 'y', Math.sin(time * 9 + Math.PI / 2) * 0.06, 10, dt);
           fingerBones.right.forEach((finger, index) =>
             addRotation(finger, 'x', 0.08 + Math.sin(time * 7 + index * 0.22) * 0.05, 12, dt),
           );
@@ -1786,41 +1805,32 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (
           gesture === 'handshake'
         ) {
-          addRotation(
-            bones.rShoulder,
-            'z',
-            -0.18,
-            12,
-            dt,
-          );
-
-          addRotation(
-            bones.rArm,
-            'z',
-            -0.72,
+          const shakePhase = time * 9;
+          poseChain(
+            [
+              {
+                bone: bones.rArm,
+                direction: new THREE.Vector3(0.55, -0.10, 0.82),
+              },
+              {
+                bone: bones.rFore,
+                direction: new THREE.Vector3(0.20, -0.12, 0.98),
+              },
+            ],
             14,
             dt,
           );
-
           addRotation(
-            bones.rFore,
-            'x',
-            -0.88 +
-              Math.sin(
-                time * 9,
-              ) *
-                0.12,
+            bones.rHand,
+            'z',
+            Math.sin(shakePhase) * 0.16,
             16,
             dt,
           );
-
           addRotation(
             bones.rHand,
-            'x',
-            Math.sin(
-              time * 9,
-            ) *
-              0.10,
+            'y',
+            Math.sin(shakePhase + Math.PI / 2) * 0.10,
             16,
             dt,
           );
@@ -2006,12 +2016,50 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const leftKnee = Math.max(0, Math.sin(phase + Math.PI / 2));
           const rightKnee = Math.max(0, Math.sin(phase + Math.PI / 2 + Math.PI));
 
-          addRotation(bones.lThigh, 'x', leftSwing * (fast ? 0.62 : 0.48) * adaptiveProfile.leg, 14, dt);
-          addRotation(bones.rThigh, 'x', rightSwing * (fast ? 0.62 : 0.48) * adaptiveProfile.leg, 14, dt);
-          addRotation(bones.lCalf, 'x', leftKnee * (fast ? 0.72 : 0.52) * adaptiveProfile.leg, 16, dt);
-          addRotation(bones.rCalf, 'x', rightKnee * (fast ? 0.72 : 0.52) * adaptiveProfile.leg, 16, dt);
-          addRotation(bones.lFoot, 'x', -leftSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
-          addRotation(bones.rFoot, 'x', -rightSwing * (fast ? 0.22 : 0.16) * adaptiveProfile.ankle, 14, dt);
+          const stride = fast ? 0.72 : 0.50;
+          const knee = fast ? 0.92 : 0.62;
+
+          poseChain(
+            [
+              {
+                bone: bones.lThigh,
+                direction: new THREE.Vector3(
+                  -0.08,
+                  -0.96,
+                  0.28 * leftSwing * stride,
+                ),
+              },
+              {
+                bone: bones.rThigh,
+                direction: new THREE.Vector3(
+                  0.08,
+                  -0.96,
+                  0.28 * rightSwing * stride,
+                ),
+              },
+              {
+                bone: bones.lCalf,
+                direction: new THREE.Vector3(
+                  0.02,
+                  -0.98,
+                  0.34 * leftKnee * knee,
+                ),
+              },
+              {
+                bone: bones.rCalf,
+                direction: new THREE.Vector3(
+                  -0.02,
+                  -0.98,
+                  0.34 * rightKnee * knee,
+                ),
+              },
+            ],
+            14,
+            dt,
+          );
+
+          addRotation(bones.lFoot, 'x', -leftSwing * 0.16 * adaptiveProfile.ankle, 14, dt);
+          addRotation(bones.rFoot, 'x', -rightSwing * 0.16 * adaptiveProfile.ankle, 14, dt);
           addRotation(bones.lShoulder, 'z', -leftSwing * (fast ? 0.12 : 0.08), 12, dt);
           addRotation(bones.rShoulder, 'z', -rightSwing * (fast ? 0.12 : 0.08), 12, dt);
           addRotation(bones.lArm, 'z', -leftSwing * (fast ? 0.42 : 0.30), 12, dt);
@@ -2027,23 +2075,38 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         else if (gesture === 'bend') {
-          addRotation(bones.hips, 'x', -0.24, 7, dt);
-          addRotation(bones.spine, 'x', -0.22, 7, dt);
-          addRotation(bones.spine1, 'x', -0.16, 7, dt);
-          addRotation(bones.spine2, 'x', -0.10, 7, dt);
-          addRotation(bones.lThigh, 'x', 0.16, 7, dt);
-          addRotation(bones.rThigh, 'x', 0.16, 7, dt);
+          poseChain(
+            [
+              { bone: bones.spine, direction: new THREE.Vector3(0, 0.96, 0.28) },
+              { bone: bones.spine1, direction: new THREE.Vector3(0, 0.92, 0.42) },
+              { bone: bones.spine2, direction: new THREE.Vector3(0, 0.90, 0.46) },
+              { bone: bones.lThigh, direction: new THREE.Vector3(-0.04, -0.98, 0.08) },
+              { bone: bones.rThigh, direction: new THREE.Vector3(0.04, -0.98, 0.08) },
+            ],
+            8,
+            dt,
+          );
         }
 
         else if (gesture === 'crouch') {
-          addRotation(bones.hips, 'x', -0.18, 8, dt);
-          addRotation(bones.lThigh, 'x', -0.70, 8, dt);
-          addRotation(bones.rThigh, 'x', -0.70, 8, dt);
-          addRotation(bones.lCalf, 'x', 1.15, 8, dt);
-          addRotation(bones.rCalf, 'x', 1.15, 8, dt);
-          addRotation(bones.lFoot, 'x', -0.20, 8, dt);
-          addRotation(bones.rFoot, 'x', -0.20, 8, dt);
-          addRotation(bones.spine, 'x', -0.06, 8, dt);
+          poseChain(
+            [
+              { bone: bones.lThigh, direction: new THREE.Vector3(-0.05, -0.72, 0.68) },
+              { bone: bones.rThigh, direction: new THREE.Vector3(0.05, -0.72, 0.68) },
+              { bone: bones.lCalf, direction: new THREE.Vector3(0.04, 0.78, 0.64) },
+              { bone: bones.rCalf, direction: new THREE.Vector3(-0.04, 0.78, 0.64) },
+            ],
+            8,
+            dt,
+          );
+          poseChain(
+            [
+              { bone: bones.spine, direction: new THREE.Vector3(0, 0.98, 0.12) },
+              { bone: bones.spine1, direction: new THREE.Vector3(0, 0.98, 0.16) },
+            ],
+            7,
+            dt,
+          );
         }
 
         else if (gesture === 'jump') {
@@ -2051,11 +2114,17 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const arc = Math.sin(Math.PI * t);
           const crouch = t < 0.24 ? t / 0.24 : t > 0.76 ? (1 - t) / 0.24 : 0;
 
+          poseChain(
+            [
+              { bone: bones.lThigh, direction: new THREE.Vector3(-0.04, -0.88 + 0.20 * crouch, 0.46) },
+              { bone: bones.rThigh, direction: new THREE.Vector3(0.04, -0.88 + 0.20 * crouch, 0.46) },
+              { bone: bones.lCalf, direction: new THREE.Vector3(0.03, -0.96 + 1.30 * crouch, 0.30) },
+              { bone: bones.rCalf, direction: new THREE.Vector3(-0.03, -0.96 + 1.30 * crouch, 0.30) },
+            ],
+            10,
+            dt,
+          );
           addRotation(bones.hips, 'x', -0.10 * crouch, 10, dt);
-          addRotation(bones.lThigh, 'x', -0.62 * crouch, 10, dt);
-          addRotation(bones.rThigh, 'x', -0.62 * crouch, 10, dt);
-          addRotation(bones.lCalf, 'x', 1.05 * crouch, 10, dt);
-          addRotation(bones.rCalf, 'x', 1.05 * crouch, 10, dt);
           addRotation(bones.lFoot, 'x', -0.24 * crouch, 10, dt);
           addRotation(bones.rFoot, 'x', -0.24 * crouch, 10, dt);
           addRotation(bones.lArm, 'z', -0.28 * arc, 10, dt);
@@ -2067,14 +2136,24 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * FULL BODY
          */
         else if (gesture === 'sit') {
-          addRotation(bones.hips, 'x', -0.10, 4.5, dt);
-          addRotation(bones.lThigh, 'x', -0.95, 4.5, dt);
-          addRotation(bones.rThigh, 'x', -0.95, 4.5, dt);
-          addRotation(bones.lCalf, 'x', 1.35, 4.5, dt);
-          addRotation(bones.rCalf, 'x', 1.35, 4.5, dt);
-          addRotation(bones.lFoot, 'x', -0.35, 4.5, dt);
-          addRotation(bones.rFoot, 'x', -0.35, 4.5, dt);
-          addRotation(bones.spine, 'x', -0.10, 4, dt);
+          poseChain(
+            [
+              { bone: bones.lThigh, direction: new THREE.Vector3(-0.04, -0.58, 0.82) },
+              { bone: bones.rThigh, direction: new THREE.Vector3(0.04, -0.58, 0.82) },
+              { bone: bones.lCalf, direction: new THREE.Vector3(0.04, 0.72, 0.69) },
+              { bone: bones.rCalf, direction: new THREE.Vector3(-0.04, 0.72, 0.69) },
+            ],
+            6,
+            dt,
+          );
+          poseChain(
+            [
+              { bone: bones.spine, direction: new THREE.Vector3(0, 0.96, 0.10) },
+              { bone: bones.spine1, direction: new THREE.Vector3(0, 0.95, 0.14) },
+            ],
+            5,
+            dt,
+          );
         }
 
         else if (gesture === 'stand') {
