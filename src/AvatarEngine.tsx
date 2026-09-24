@@ -967,6 +967,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let bookObject: THREE.Group | null = null;
     let notepadObject: THREE.Group | null = null;
     let penObject: THREE.Mesh | null = null;
+    const penRestWorld = new THREE.Vector3();
 
     const setGlasses = (visible: boolean) => {
       glassesObjects.forEach((object) => { object.visible = visible; });
@@ -1046,6 +1047,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'present';
       } else if (/\b(bye-wave|wave|waving|greet|greeting|hello|hi|welcome)\b/.test(value)) {
         gesture = 'wave';
+      } else if (/\b(read.*(then|and).*write|study.*write|read-and-write|study-notes)\b/.test(value)) {
+        gesture = 'study-write';
       } else if (/\b(read|reading|read-book|reading-book|book)\b/.test(value)) {
         gesture = 'read-book';
       } else if (/\b(write|writing|write-note|write-notepad|note-taking|take-notes)\b/.test(value)) {
@@ -1399,6 +1402,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         furniture = createFurniture(height);
         bookObject?.traverse((object) => { object.visible = true; });
         notepadObject?.traverse((object) => { object.visible = true; });
+        if (penObject) {
+          penObject.getWorldPosition(penRestWorld);
+          penObject.removeFromParent();
+          scene.add(penObject);
+        }
 
         nativeMotion = playNative(
           [
@@ -1696,6 +1704,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         restoreAllBones(10, dt);
         // All procedural gestures start from the captured rest pose each frame;
         // this prevents hand/elbow/leg rotations from accumulating or stacking.
+
+        if (penObject && gesture !== 'write-notepad' && gesture !== 'study-write') {
+          penObject.position.copy(penRestWorld);
+          penObject.quaternion.set(0, 0, 0, 1);
+          penObject.scale.setScalar(1);
+        }
 
         /*
          * EXECUTABLE PERFORMANCE LAYER
@@ -2197,6 +2211,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * STUDY -> WRITE SEQUENCE
+         */
+        else if (gesture === 'study-write') {
+          const elapsed = now - gestureStarted;
+          gesture = elapsed < 5200 ? 'read-book' : 'write-notepad';
+        }
+
+        /*
          * READING
          *
          * Reading couples the eyes/head, trunk, both shoulders and elbows.
@@ -2664,6 +2686,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           sit: 2600,
           'sit-chair': 3600,
           'read-book': 5200,
+          'study-write': 11400,
           'write-notepad': 6200,
           'cross-sit': 4200,
           'hold-chair': 3000,
