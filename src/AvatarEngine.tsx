@@ -666,12 +666,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       lower.getWorldPosition(midPos);
       const lowerTargetDirection = target.clone().sub(midPos).normalize();
       poseBoneToward(lower, lowerTargetDirection, speed, dt);
-
-      // Keep the ankle/hand approximately aligned with the requested target.
-      const endDirection = target.clone().sub(midPos).normalize();
-      if (endDirection.lengthSq() > 0.001) {
-        poseBoneToward(lower, endDirection, speed, dt);
-      }
     };
 
     const poseChain = (
@@ -979,6 +973,19 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let penObject: THREE.Mesh | null = null;
     const penRestWorld = new THREE.Vector3();
 
+    const ensureFurniture = () => {
+      if (furniture || !avatarFrame) return furniture;
+      furniture = createFurniture(avatarFrame.height);
+      bookObject?.traverse((object) => { object.visible = true; });
+      notepadObject?.traverse((object) => { object.visible = true; });
+      if (penObject) {
+        penObject.getWorldPosition(penRestWorld);
+        penObject.removeFromParent();
+        scene.add(penObject);
+      }
+      return furniture;
+    };
+
     const setGlasses = (visible: boolean) => {
       glassesObjects.forEach((object) => { object.visible = visible; });
       setStatus(`3D AVATAR • GLASSES ${visible ? 'ON' : 'OFF'}`);
@@ -1137,6 +1144,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
 
       gestureStarted = performance.now();
+
+      // Workstation props are demand-loaded only for physical interaction;
+      // the default presentation never shows a chair or table in front of the avatar.
+      if (['sit-chair', 'sit-chair-human', 'hold-chair', 'read-book', 'write-notepad', 'study-write', 'clear-object-side'].includes(gesture)) {
+        ensureFurniture();
+      }
+
       stopNativeMotion();
 
       // Native idle is the only authored FBX clip allowed to drive the rig.
@@ -1433,14 +1447,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         // Re-capture after the FBX is grounded/repositioned so IK targets
         // are in the same world space as the normalized avatar.
         captureRestPose(loaded);
-        furniture = createFurniture(height);
-        bookObject?.traverse((object) => { object.visible = true; });
-        notepadObject?.traverse((object) => { object.visible = true; });
-        if (penObject) {
-          penObject.getWorldPosition(penRestWorld);
-          penObject.removeFromParent();
-          scene.add(penObject);
-        }
+        // Do not place furniture in the default avatar scene. The open front
+        // lane is intentionally unobstructed. Chair/table props are created
+        // only when a chair/table interaction is explicitly requested.
 
         nativeMotion = playNative(
           [
@@ -2596,43 +2605,68 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const rightShoulder = new THREE.Vector3();
           bones.lShoulder?.getWorldPosition(leftShoulder);
           bones.rShoulder?.getWorldPosition(rightShoulder);
-          // Human gait rule: arms counter-phase the legs. When the left
-          // leg advances, the right hand advances; the shoulder leads and
-          // the elbow remains naturally flexed instead of pointing forward
-          // while the hand travels backward.
-          const armSwing = fast ? 0.16 : 0.12;
-          const armDrop = fast ? -0.10 : -0.08;
+          // Human gait: each arm swings opposite the contralateral leg.
+          // The hand travels forward/back in a smooth sinusoid while the
+          // elbow stays slightly behind the hand. The pole is posterior (-Z),
+          // preventing the old "elbow in front / hand behind" reversal.
+          const armSwing = fast ? 0.19 : 0.145;
+          const armDrop = fast ? -0.09 : -0.075;
+          const relaxedElbowBack = new THREE.Vector3(0, 0, -0.30);
+          const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-0.018, armDrop, armSwing * rightSwing));
+          const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(0.018, armDrop, armSwing * leftSwing));
+
           solveTwoBoneIK(
             bones.lArm,
             bones.lFore,
             bones.lHand,
-            leftShoulder.clone().add(new THREE.Vector3(-0.025, armDrop, armSwing * rightSwing)),
-            leftShoulder.clone().add(new THREE.Vector3(0, 0, 0.34)),
-            8,
+            leftHandTarget,
+            leftShoulder.clone().add(relaxedElbowBack),
+            11,
             dt,
           );
           solveTwoBoneIK(
             bones.rArm,
             bones.rFore,
             bones.rHand,
-            rightShoulder.clone().add(new THREE.Vector3(0.025, armDrop, armSwing * leftSwing)),
-            rightShoulder.clone().add(new THREE.Vector3(0, 0, 0.34)),
-            8,
+            rightHandTarget,
+            rightShoulder.clone().add(relaxedElbowBack),
+            11,
             dt,
           );
+
+          // Keep wrists neutral and fingers naturally relaxed; no finger
+          // controller is allowed to desynchronise the two gait cycles.
+          addRotation(bones.lHand, 'x', 0.02, 8, dt);
+          addRotation(bones.rHand, 'x', 0.02, 8, dt);
+          fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.10, 8, dt));
+          fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.10, 8, dt));
         }
 
         else if (gesture === 'bend') {
-          // Forward bend is distributed progressively through the spine.
-          poseChain(
-            [
-              { bone: bones.spine, direction: new THREE.Vector3(0, 0.96, 0.42) },
-              { bone: bones.spine1, direction: new THREE.Vector3(0, 0.91, 0.55) },
-              { bone: bones.spine2, direction: new THREE.Vector3(0, 0.86, 0.63) },
-            ],
-            7,
-            dt,
-          );
+          // Human forward bending is primarily a hip/trunk coordination,
+          // not a folded lumbar spine. Keep the spine long, shift the pelvis
+          // slightly back, and use only a small, controlled knee flexion.
+          const t = THREE.MathUtils.clamp((now - gestureStarted) / 1200, 0, 1);
+          const bend = 0.42 * (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+          const h = avatarFrame?.height ?? 1;
+          root.position.z = THREE.MathUtils.damp(root.position.z, -h * 0.035 * bend, 5, dt);
+          poseChain([
+            { bone: bones.spine, direction: new THREE.Vector3(0, Math.cos(bend * 0.55), Math.sin(bend * 0.55)) },
+            { bone: bones.spine1, direction: new THREE.Vector3(0, Math.cos(bend * 0.70), Math.sin(bend * 0.70)) },
+            { bone: bones.spine2, direction: new THREE.Vector3(0, Math.cos(bend * 0.82), Math.sin(bend * 0.82)) },
+          ], 7, dt);
+          // Feet remain planted; the pole is slightly anterior only enough to
+          // allow a small knee unlock without pushing the knees dramatically forward.
+          const leftFoot = restWorldPositions.get(bones.lFoot!);
+          const rightFoot = restWorldPositions.get(bones.rFoot!);
+          if (leftFoot && rightFoot && bend > 0.08) {
+            const leftHip = new THREE.Vector3();
+            const rightHip = new THREE.Vector3();
+            bones.lThigh?.getWorldPosition(leftHip);
+            bones.rThigh?.getWorldPosition(rightHip);
+            solveTwoBoneIK(bones.lThigh, bones.lCalf, bones.lFoot, leftFoot.clone(), leftHip.clone().add(new THREE.Vector3(0, 0, 0.10)), 5, dt);
+            solveTwoBoneIK(bones.rThigh, bones.rCalf, bones.rFoot, rightFoot.clone(), rightHip.clone().add(new THREE.Vector3(0, 0, 0.10)), 5, dt);
+          }
         }
 
         else if (gesture === 'back-bend') {
