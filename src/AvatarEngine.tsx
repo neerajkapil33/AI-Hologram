@@ -2212,19 +2212,17 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
         /*
          * STUDY -> WRITE SEQUENCE
+         *
+         * The state remains "study-write"; its phase is selected from elapsed
+         * time so the duration controller does not prematurely terminate it.
          */
-        else if (gesture === 'study-write') {
-          const elapsed = now - gestureStarted;
-          gesture = elapsed < 5200 ? 'read-book' : 'write-notepad';
-        }
-
         /*
          * READING
          *
          * Reading couples the eyes/head, trunk, both shoulders and elbows.
          * The book remains a real scene object on the workstation.
          */
-        else if (gesture === 'read-book') {
+        else if (gesture === 'read-book' || (gesture === 'study-write' && now - gestureStarted < 5200)) {
           const bookCenter = new THREE.Vector3();
           if (bookObject) bookObject.getWorldPosition(bookCenter);
           const leftShoulder = new THREE.Vector3();
@@ -2264,7 +2262,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * Fine writing is led by the fingers/wrist while shoulder and elbow
          * stabilize the hand. This mirrors handwriting biomechanics.
          */
-        else if (gesture === 'write-notepad') {
+        else if (gesture === 'write-notepad' || (gesture === 'study-write' && now - gestureStarted >= 5200)) {
           const padCenter = new THREE.Vector3();
           if (notepadObject) notepadObject.getWorldPosition(padCenter);
 
