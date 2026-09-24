@@ -2461,14 +2461,17 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           gesture === 'smile' ||
           expression === 'smile'
         ) {
-          restoreUpperBody(
+          // A facial smile must never own or reset the arm rig. Keep the
+          // body in the same relaxed straight-arm posture used by idle/stand.
+          applyRestArms(
             bones,
-            7,
+            avatarFrame?.height ?? 1,
             dt,
+            11,
           );
 
-          // Facial expression morphs are driven once by the centralized
-          // expression layer above; this gesture only restores the body pose.
+          // Facial expression morphs are driven by the centralized facial
+          // layer; the smile gesture changes the face only.
         }
 
         /*
@@ -2706,9 +2709,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const leftTarget = gaitTarget(leftFootRest, leftSwing, phase + Math.PI / 2);
           const rightTarget = gaitTarget(rightFootRest, rightSwing, phase + Math.PI / 2 + Math.PI);
 
-          // The knee pole is deliberately behind the body (-Z). The solver
-          // makes the knee bend backward while the ankle follows the foot
-          // target; no independent calf direction can pull the leg upward.
+          // The knee pole stays behind the avatar's actual travel direction,
+          // so north/east/south/west all use the same anatomical gait.
+          const gaitForward = locomotionVector.clone().normalize();
           if (leftTarget) {
             const hip = new THREE.Vector3();
             bones.lThigh?.getWorldPosition(hip);
@@ -2717,7 +2720,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               bones.lCalf,
               bones.lFoot,
               leftTarget,
-              hip.clone().add(new THREE.Vector3(0, 0, -1)),
+              hip.clone().add(gaitForward.clone().multiplyScalar(-1)),
               12,
               dt,
             );
@@ -2746,6 +2749,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const rightShoulder = new THREE.Vector3();
           bones.lShoulder?.getWorldPosition(leftShoulder);
           bones.rShoulder?.getWorldPosition(rightShoulder);
+          const gaitSide = new THREE.Vector3(-gaitForward.z, 0, gaitForward.x);
           // Human gait: each arm swings opposite the contralateral leg.
           // The hand travels forward/back in a smooth sinusoid while the
           // elbow stays slightly behind the hand. The pole is posterior (-Z),
@@ -2760,16 +2764,20 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           // Walk/run: upper arms stay close to the torso, elbows are bent,
           // and forearms/hands swing opposite the legs.
           const leftHandTarget = leftShoulder.clone()
-            .add(new THREE.Vector3(-side, -handDrop, 0))
+            .add(gaitSide.clone().multiplyScalar(-side))
+            .add(new THREE.Vector3(0, -handDrop, 0))
             .add(forwardSwing.clone().multiplyScalar(rightSwing));
           const rightHandTarget = rightShoulder.clone()
-            .add(new THREE.Vector3(side, -handDrop, 0))
+            .add(gaitSide.clone().multiplyScalar(side))
+            .add(new THREE.Vector3(0, -handDrop, 0))
             .add(forwardSwing.clone().multiplyScalar(leftSwing));
           const leftPole = leftShoulder.clone()
-            .add(new THREE.Vector3(-side * 1.4, -elbowDrop, 0))
+            .add(gaitSide.clone().multiplyScalar(-side * 1.4))
+            .add(new THREE.Vector3(0, -elbowDrop, 0))
             .add(forwardSwing.clone().multiplyScalar(-rightSwing * 0.25));
           const rightPole = rightShoulder.clone()
-            .add(new THREE.Vector3(side * 1.4, -elbowDrop, 0))
+            .add(gaitSide.clone().multiplyScalar(side * 1.4))
+            .add(new THREE.Vector3(0, -elbowDrop, 0))
             .add(forwardSwing.clone().multiplyScalar(-leftSwing * 0.25));
 
           solveTwoBoneIK(
