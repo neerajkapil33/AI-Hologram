@@ -922,14 +922,51 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
         }
       }
-      table.position.set(scale * 0.88, 0, -scale * 0.02);
-      group.add(table);
+      // Workstation is placed in front of the chair so seated writing uses
+      // a natural hip-to-elbow reach rather than twisting sideways.
+      chair.position.set(-scale * 0.42, 0, -scale * 0.06);
+      table.position.set(-scale * 0.42, 0, scale * 0.48);
+
+      const book = new THREE.Group();
+      book.name = 'AURA_BOOK';
+      const cover = makeBox(scale * 0.28, scale * 0.018, scale * 0.20, seat);
+      cover.position.set(-scale * 0.08, tableH + scale * 0.025, 0);
+      cover.rotation.x = -0.12;
+      const pages = makeBox(scale * 0.25, scale * 0.014, scale * 0.18, wood);
+      pages.position.set(-scale * 0.08, tableH + scale * 0.043, 0);
+      pages.rotation.x = -0.12;
+      book.position.set(table.position.x, 0, table.position.z);
+      table.add(book);
+
+      const pad = new THREE.Group();
+      pad.name = 'AURA_NOTEPAD';
+      const padMesh = makeBox(scale * 0.32, scale * 0.014, scale * 0.24, wood);
+      padMesh.position.y = tableH + scale * 0.032;
+      padMesh.rotation.x = -0.03;
+      pad.position.set(scale * 0.15, 0, scale * 0.02);
+      table.add(pad);
+
+      const pen = new THREE.Mesh(
+        new THREE.CylinderGeometry(scale * 0.012, scale * 0.012, scale * 0.20, 10),
+        wood,
+      );
+      pen.name = 'AURA_PEN';
+      pen.rotation.z = Math.PI / 2;
+      pen.position.set(scale * 0.12, tableH + scale * 0.055, scale * 0.14);
+      table.add(pen);
+
+      bookObject = book;
+      notepadObject = pad;
+      penObject = pen;
 
       scene.add(group);
       return group;
     };
 
     let furniture: THREE.Group | null = null;
+    let bookObject: THREE.Group | null = null;
+    let notepadObject: THREE.Group | null = null;
+    let penObject: THREE.Mesh | null = null;
 
     const setGlasses = (visible: boolean) => {
       glassesObjects.forEach((object) => { object.visible = visible; });
@@ -1009,6 +1046,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'present';
       } else if (/\b(bye-wave|wave|waving|greet|greeting|hello|hi|welcome)\b/.test(value)) {
         gesture = 'wave';
+      } else if (/\b(read|reading|read-book|reading-book|book)\b/.test(value)) {
+        gesture = 'read-book';
+      } else if (/\b(write|writing|write-note|write-notepad|note-taking|take-notes)\b/.test(value)) {
+        gesture = 'write-notepad';
+      } else if (/\b(cross-legs|crossed-legs|leg-over-thigh|legs-crossed)\b/.test(value)) {
+        gesture = 'cross-sit';
+      } else if (/\b(hold-chair|holding-chair|chair-support)\b/.test(value)) {
+        gesture = 'hold-chair';
       } else if (/\b(point|pointing|indicate|indicating)\b/.test(value)) {
         gesture = 'point';
       } else if (/\b(present|presenting|explain|explaining|show|showing|open-hand|open-palms|emphasis|demonstrate)\b/.test(value)) {
@@ -1352,6 +1397,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         // are in the same world space as the normalized avatar.
         captureRestPose(loaded);
         furniture = createFurniture(height);
+        bookObject?.traverse((object) => { object.visible = true; });
+        notepadObject?.traverse((object) => { object.visible = true; });
 
         nativeMotion = playNative(
           [
@@ -2150,6 +2197,156 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * READING
+         *
+         * Reading couples the eyes/head, trunk, both shoulders and elbows.
+         * The book remains a real scene object on the workstation.
+         */
+        else if (gesture === 'read-book') {
+          const bookCenter = new THREE.Vector3();
+          if (bookObject) bookObject.getWorldPosition(bookCenter);
+          const leftShoulder = new THREE.Vector3();
+          const rightShoulder = new THREE.Vector3();
+          bones.lShoulder?.getWorldPosition(leftShoulder);
+          bones.rShoulder?.getWorldPosition(rightShoulder);
+
+          const leftBook = bookCenter.clone().add(new THREE.Vector3(-0.09, 0.05, -0.02));
+          const rightBook = bookCenter.clone().add(new THREE.Vector3(0.09, 0.05, -0.02));
+
+          solveTwoBoneIK(
+            bones.lArm, bones.lFore, bones.lHand,
+            leftBook, leftShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 9, dt,
+          );
+          solveTwoBoneIK(
+            bones.rArm, bones.rFore, bones.rHand,
+            rightBook, rightShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 9, dt,
+          );
+
+          addRotation(bones.lHand, 'z', -0.08, 8, dt);
+          addRotation(bones.rHand, 'z', 0.08, 8, dt);
+          addRotation(bones.spine, 'x', 0.055, 7, dt);
+          addRotation(bones.spine1, 'x', 0.045, 7, dt);
+          addRotation(bones.spine2, 'x', 0.030, 7, dt);
+          addRotation(bones.neck, 'x', 0.10, 7, dt);
+          addRotation(bones.head, 'x', 0.16, 7, dt);
+
+          // Eyes alternate between the page and brief upward glances.
+          const glance = Math.sin(time * 0.9) > 0.72 ? -0.045 : 0.035;
+          addRotation(bones.lEye, 'x', glance, 9, dt);
+          addRotation(bones.rEye, 'x', glance, 9, dt);
+        }
+
+        /*
+         * WRITING
+         *
+         * Fine writing is led by the fingers/wrist while shoulder and elbow
+         * stabilize the hand. This mirrors handwriting biomechanics.
+         */
+        else if (gesture === 'write-notepad') {
+          const padCenter = new THREE.Vector3();
+          if (notepadObject) notepadObject.getWorldPosition(padCenter);
+
+          const rightShoulder = new THREE.Vector3();
+          bones.rShoulder?.getWorldPosition(rightShoulder);
+          const penTarget = padCenter.clone().add(new THREE.Vector3(0.02, 0.07, 0.01));
+
+          solveTwoBoneIK(
+            bones.rArm, bones.rFore, bones.rHand,
+            penTarget, rightShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 12, dt,
+          );
+
+          // Writing hand uses a tripod-like pinch: thumb/index lead, other
+          // fingers support the pen. Small wrist oscillations form strokes.
+          const stroke = time * 9.5;
+          fingerBones.right.forEach((finger, index) => {
+            const n = norm(finger.name);
+            const isThumb = /thumb/.test(n);
+            const isIndex = /index/.test(n);
+            const bend = isThumb ? 0.18 : isIndex ? 0.08 : 0.30;
+            addRotation(finger, 'x', bend + Math.sin(stroke + index * 0.18) * 0.012, 14, dt);
+          });
+          addRotation(bones.rHand, 'x', 0.16 + Math.sin(stroke) * 0.035, 12, dt);
+          addRotation(bones.rHand, 'y', Math.sin(stroke * 0.72) * 0.035, 12, dt);
+
+          // The left hand stabilizes the page instead of floating independently.
+          const leftShoulder = new THREE.Vector3();
+          bones.lShoulder?.getWorldPosition(leftShoulder);
+          solveTwoBoneIK(
+            bones.lArm, bones.lFore, bones.lHand,
+            padCenter.clone().add(new THREE.Vector3(-0.11, 0.07, 0.02)),
+            leftShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 9, dt,
+          );
+          fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.22, 10, dt));
+
+          // Normal desk writing posture: slight forward trunk lean, relaxed
+          // neck and elbows supported around the tabletop height.
+          addRotation(bones.spine, 'x', 0.10, 7, dt);
+          addRotation(bones.spine1, 'x', 0.075, 7, dt);
+          addRotation(bones.spine2, 'x', 0.045, 7, dt);
+          addRotation(bones.neck, 'x', 0.055, 7, dt);
+          addRotation(bones.head, 'x', 0.09, 7, dt);
+
+          // Move the pen with the writing hand after the hand pose has settled.
+          if (penObject && bones.rHand) {
+            const handPosition = new THREE.Vector3();
+            const handQuaternion = new THREE.Quaternion();
+            bones.rHand.getWorldPosition(handPosition);
+            bones.rHand.getWorldQuaternion(handQuaternion);
+            penObject.position.copy(handPosition);
+            penObject.quaternion.copy(handQuaternion);
+            penObject.scale.setScalar(0.72);
+          }
+        }
+
+        /*
+         * CROSS-LEGGED SEATED POSTURE
+         */
+        else if (gesture === 'cross-sit') {
+          const seatY = (avatarFrame?.height ?? 1) * 0.43;
+          root.position.y = THREE.MathUtils.damp(root.position.y, -(avatarFrame?.height ?? 1) * 0.075, 5, dt);
+
+          const rightThigh = new THREE.Vector3();
+          const leftThigh = new THREE.Vector3();
+          bones.rThigh?.getWorldPosition(rightThigh);
+          bones.lThigh?.getWorldPosition(leftThigh);
+
+          // Left ankle travels across and rests over the right thigh.
+          const leftFootTarget = rightThigh.clone().add(new THREE.Vector3(0.08, 0.03, 0.02));
+          solveTwoBoneIK(
+            bones.lThigh, bones.lCalf, bones.lFoot,
+            leftFootTarget,
+            leftThigh.clone().add(new THREE.Vector3(0, 0, -1)), 8, dt,
+          );
+          restoreBone(bones.rThigh, 7, dt);
+          restoreBone(bones.rCalf, 7, dt);
+          restoreBone(bones.rFoot, 7, dt);
+
+          poseChain([
+            { bone: bones.spine, direction: new THREE.Vector3(0, 0.995, 0.05) },
+            { bone: bones.spine1, direction: new THREE.Vector3(0, 0.995, 0.04) },
+            { bone: bones.spine2, direction: new THREE.Vector3(0, 0.995, 0.03) },
+          ], 7, dt);
+          addRotation(bones.head, 'x', -0.01, 6, dt);
+        }
+
+        /*
+         * HOLD CHAIR
+         */
+        else if (gesture === 'hold-chair') {
+          const chairWorld = new THREE.Vector3();
+          const chair = furniture?.getObjectByName('AURA_CHAIR');
+          if (chair) chair.getWorldPosition(chairWorld);
+          const leftShoulder = new THREE.Vector3();
+          bones.lShoulder?.getWorldPosition(leftShoulder);
+          solveTwoBoneIK(
+            bones.lArm, bones.lFore, bones.lHand,
+            chairWorld.clone().add(new THREE.Vector3(-0.15, 0.48 * (avatarFrame?.height ?? 1), 0.05)),
+            leftShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 10, dt,
+          );
+          addRotation(bones.spine, 'x', 0.02, 6, dt);
+        }
+
+        /*
          * WALK / RUN / JUMP LEG TESTS
          */
         else if (gesture === 'walk' || gesture === 'run') {
@@ -2466,6 +2663,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           clothes: 1800,
           sit: 2600,
           'sit-chair': 3600,
+          'read-book': 5200,
+          'write-notepad': 6200,
+          'cross-sit': 4200,
+          'hold-chair': 3000,
           stand: 2600,
           walk: 3000,
           run: 3000,
@@ -2522,6 +2723,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         });
         scene.remove(furniture);
         furniture = null;
+        bookObject = null;
+        notepadObject = null;
+        penObject = null;
       }
 
       if (model) {
