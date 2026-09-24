@@ -2473,7 +2473,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           bend: 2200,
           crouch: 2200,
           'back-bend': 2200,
-          'sit-chair': 3600,
         };
 
         const duration = durations[gesture] ?? 0;
