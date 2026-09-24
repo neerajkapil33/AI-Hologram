@@ -463,6 +463,71 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
     const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
 
+    type LimbAxis = { axis: 'x' | 'y' | 'z'; sign: 1 | -1 };
+    const limbAxes = new Map<THREE.Bone, { flex: LimbAxis; lift?: LimbAxis }>();
+
+    const chooseLocalAxis = (
+      bone: THREE.Bone | null,
+      worldDirection: THREE.Vector3,
+    ): LimbAxis | null => {
+      if (!bone?.parent) return null;
+      const parentWorld = new THREE.Quaternion();
+      bone.parent.getWorldQuaternion(parentWorld);
+      parentWorld.invert();
+      const target = worldDirection.clone().normalize().applyQuaternion(parentWorld);
+      const axes: Array<['x' | 'y' | 'z', THREE.Vector3]> = [
+        ['x', new THREE.Vector3(1, 0, 0)],
+        ['y', new THREE.Vector3(0, 1, 0)],
+        ['z', new THREE.Vector3(0, 0, 1)],
+      ];
+      let best: LimbAxis = { axis: 'x', sign: 1 };
+      let score = -Infinity;
+      for (const [axis, vector] of axes) {
+        const dot = vector.dot(target);
+        if (Math.abs(dot) > score) {
+          score = Math.abs(dot);
+          best = { axis, sign: dot >= 0 ? 1 : -1 };
+        }
+      }
+      return best;
+    };
+
+    const calibrateLimbAxes = (root: THREE.Object3D, map: BoneMap) => {
+      root.updateMatrixWorld(true);
+      const hips = new THREE.Vector3();
+      const spine = new THREE.Vector3();
+      const leftThigh = new THREE.Vector3();
+      const rightThigh = new THREE.Vector3();
+      map.hips?.getWorldPosition(hips);
+      map.spine?.getWorldPosition(spine);
+      map.lThigh?.getWorldPosition(leftThigh);
+      map.rThigh?.getWorldPosition(rightThigh);
+
+      const up = spine.sub(hips).normalize();
+      const right = rightThigh.sub(leftThigh).normalize();
+      if (!up.lengthSq() || !right.lengthSq()) return;
+
+      const forward = new THREE.Vector3().crossVectors(right, up).normalize();
+      const flexBones = [
+        map.hips, map.spine, map.spine1,
+        map.lThigh, map.rThigh, map.lCalf, map.rCalf,
+        map.lFoot, map.rFoot, map.lFore, map.rFore,
+      ];
+      flexBones.forEach((bone) => {
+        const flex = chooseLocalAxis(bone, right);
+        if (bone && flex) limbAxes.set(bone, { flex });
+      });
+
+      const liftBones = [map.lShoulder, map.rShoulder, map.lArm, map.rArm];
+      liftBones.forEach((bone) => {
+        if (!bone) return;
+        const existing = limbAxes.get(bone);
+        const flex = existing?.flex ?? chooseLocalAxis(bone, right);
+        const lift = chooseLocalAxis(bone, forward);
+        if (flex && lift) limbAxes.set(bone, { flex, lift });
+      });
+    };
+
     const originalRotation = new Map<
       THREE.Bone,
       THREE.Euler
@@ -518,13 +583,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       if (!bone) return;
 
       const base = originalRotation.get(bone);
-
       if (!base) return;
+
+      let targetAxis = axis;
+      let targetAmount = amount;
+      const calibrated = limbAxes.get(bone);
+
+      if (calibrated) {
+        if (axis === 'x') {
+          targetAxis = calibrated.flex.axis;
+          targetAmount = amount * calibrated.flex.sign;
+        } else if (axis === 'z' && calibrated.lift) {
+          targetAxis = calibrated.lift.axis;
+          targetAmount = amount * calibrated.lift.sign;
+        }
+      }
 
       dampRotation(
         bone,
-        axis,
-        base[axis] + amount,
+        targetAxis,
+        base[targetAxis] + targetAmount,
         speed,
         dt,
       );
@@ -809,6 +887,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'full-body';
       } else if (/\b(clothes|clothing|adjust-clothes|adjust-clothing)\b/.test(value)) {
         gesture = 'clothes';
+      } else if (/\b(crouch|crouching|squat|squatting)\b/.test(value)) {
+        gesture = 'crouch';
+      } else if (/\b(bend|bending|bow|bowing|lean-forward|leaning-forward)\b/.test(value)) {
+        gesture = 'bend';
       } else if (/\b(sit|sitting|sit-down|sitdown)\b/.test(value)) {
         gesture = 'sit';
       } else if (/\b(stand|standing|stand-up|standup|rise|get-up)\b/.test(value)) {
@@ -1030,6 +1112,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         });
 
         bones = findBones(loaded);
+        calibrateLimbAxes(loaded, bones);
 
         // Drive only fingers that actually descend from the resolved hand
         // bones. This prevents unrelated/parallel FBX finger branches from
@@ -1943,6 +2026,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.hips, 'y', Math.sin(phase + Math.PI / 2) * 0.025, 10, dt);
         }
 
+        else if (gesture === 'bend') {
+          addRotation(bones.hips, 'x', -0.24, 7, dt);
+          addRotation(bones.spine, 'x', -0.22, 7, dt);
+          addRotation(bones.spine1, 'x', -0.16, 7, dt);
+          addRotation(bones.spine2, 'x', -0.10, 7, dt);
+          addRotation(bones.lThigh, 'x', 0.16, 7, dt);
+          addRotation(bones.rThigh, 'x', 0.16, 7, dt);
+        }
+
+        else if (gesture === 'crouch') {
+          addRotation(bones.hips, 'x', -0.18, 8, dt);
+          addRotation(bones.lThigh, 'x', -0.70, 8, dt);
+          addRotation(bones.rThigh, 'x', -0.70, 8, dt);
+          addRotation(bones.lCalf, 'x', 1.15, 8, dt);
+          addRotation(bones.rCalf, 'x', 1.15, 8, dt);
+          addRotation(bones.lFoot, 'x', -0.20, 8, dt);
+          addRotation(bones.rFoot, 'x', -0.20, 8, dt);
+          addRotation(bones.spine, 'x', -0.06, 8, dt);
+        }
+
         else if (gesture === 'jump') {
           const t = THREE.MathUtils.clamp((now - gestureStarted) / 900, 0, 1);
           const arc = Math.sin(Math.PI * t);
@@ -2068,6 +2171,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           walk: 3000,
           run: 3000,
           jump: 1200,
+          bend: 2200,
+          crouch: 2200,
         };
 
         const duration = durations[gesture] ?? 0;
