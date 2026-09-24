@@ -1,7 +1,7 @@
 NEERAJ AI AVATAR ASSET
 
 Place the final full-body rigged avatar at:
-public/avatar/avatar.glb
+public/avatar/model.fbx
 
 The renderer automatically loads /avatar/model.fbx.
 Supported architecture:
