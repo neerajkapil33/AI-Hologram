@@ -264,6 +264,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let speaking = false;
     let expression = 'neutral';
 
+    let performanceState = {
+      head: 'neutral',
+      body: 'idle',
+      gaze: 'camera',
+      intensity: 0.35,
+      durationMs: 1800,
+      startedAt: performance.now(),
+    };
+
     let targetMouth = 0;
     let mouth = 0;
 
@@ -601,11 +610,17 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         return;
       }
 
-      if (/\b(wave|waving|greet|greeting|hello|hi|welcome)\b/.test(value)) {
+      if (/\b(acknowledge|acknowledgement|nod|nodding|yes|agree|agreement)\b/.test(value)) {
+        gesture = 'nod';
+      } else if (/\b(chin-touch|chin|thinking-hand|think)\b/.test(value)) {
+        gesture = 'chin-touch';
+      } else if (/\b(namaste)\b/.test(value)) {
+        gesture = 'present';
+      } else if (/\b(bye-wave|wave|waving|greet|greeting|hello|hi|welcome)\b/.test(value)) {
         gesture = 'wave';
       } else if (/\b(point|pointing|indicate|indicating)\b/.test(value)) {
         gesture = 'point';
-      } else if (/\b(present|presenting|explain|explaining|show|showing|open-hand|open-palms)\b/.test(value)) {
+      } else if (/\b(present|presenting|explain|explaining|show|showing|open-hand|open-palms|emphasis|demonstrate)\b/.test(value)) {
         gesture = 'present';
       } else if (/\b(handshake|hand-shake|shake-hand|shake-hands)\b/.test(value)) {
         gesture = 'handshake';
@@ -681,28 +696,50 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
     const command = (cmd: AvatarCommand) => {
       if (cmd.type === 'performance') {
-        if (
-          typeof cmd.value?.speaking ===
-          'boolean'
-        ) {
-          speaking = cmd.value.speaking;
+        const value = cmd.value ?? {};
+
+        if (typeof value.speaking === 'boolean') {
+          speaking = value.speaking;
         }
 
-        if (
-          typeof cmd.value?.gesture ===
-          'string'
-        ) {
-          runGesture(cmd.value.gesture);
+        if (typeof value.gesture === 'string') {
+          runGesture(value.gesture);
         }
 
-        if (
-          typeof cmd.value?.emotion ===
-          'string'
-        ) {
-          expression =
-            cmd.value.emotion.toLowerCase();
+        const expressionSource =
+          typeof value.expression === 'string'
+            ? value.expression
+            : typeof value.emotion === 'string'
+              ? value.emotion
+              : 'neutral';
+
+        const normalizedExpression = expressionSource.toLowerCase();
+        if (/smile|happy|warm|kind|positive|confident/.test(normalizedExpression)) {
+          expression = 'smile';
+        } else if (/sad|grief|hurt/.test(normalizedExpression)) {
+          expression = 'sad';
+        } else if (/thinking|thoughtful|confused|curious|smart/.test(normalizedExpression)) {
+          expression = 'thinking';
+        } else if (/surprise|excited|energetic|joyful/.test(normalizedExpression)) {
+          expression = 'excited';
+        } else if (/firm|angry|assertive|focused/.test(normalizedExpression)) {
+          expression = 'firm';
+        } else {
+          expression = 'neutral';
         }
 
+        performanceState = {
+          head: typeof value.head === 'string' ? value.head.toLowerCase() : 'neutral',
+          body: typeof value.body === 'string' ? value.body.toLowerCase() : 'idle',
+          gaze: typeof value.gaze === 'string' ? value.gaze.toLowerCase() : 'camera',
+          intensity: THREE.MathUtils.clamp(Number(value.intensity ?? 0.35), 0.15, 0.85),
+          durationMs: Math.max(300, Math.min(10000, Number(value.duration_ms ?? 1800))),
+          startedAt: performance.now(),
+        };
+
+        setStatus(
+          `NEERAJ PERFORMANCE • ${performanceState.body.toUpperCase()} • ${performanceState.head.toUpperCase()} • ${performanceState.gaze.toUpperCase()}`,
+        );
         return;
       }
 
@@ -1181,6 +1218,73 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         restoreAllBones(10, dt);
         // All procedural gestures start from the captured rest pose each frame;
         // this prevents hand/elbow/leg rotations from accumulating or stacking.
+
+        /*
+         * EXECUTABLE PERFORMANCE LAYER
+         *
+         * PerformanceDirector supplies semantic head/body/gaze instructions.
+         * They are converted here into small rig-aware offsets so the real FBX
+         * performs instead of merely receiving a label.
+         */
+        const performanceAge = (now - performanceState.startedAt) / Math.max(performanceState.durationMs, 1);
+        const pulse = Math.sin(Math.min(performanceAge, 1) * Math.PI);
+        const strength = performanceState.intensity * (0.65 + 0.35 * pulse);
+
+        if (performanceState.gaze === 'camera') {
+          addRotation(bones.lEye, 'y', 0, 12, dt);
+          addRotation(bones.rEye, 'y', 0, 12, dt);
+          addRotation(bones.lEye, 'x', 0, 12, dt);
+          addRotation(bones.rEye, 'x', 0, 12, dt);
+        } else if (performanceState.gaze === 'soft_focus') {
+          addRotation(bones.lEye, 'y', -0.045 * strength, 10, dt);
+          addRotation(bones.rEye, 'y', -0.045 * strength, 10, dt);
+          addRotation(bones.lEye, 'x', -0.025 * strength, 10, dt);
+          addRotation(bones.rEye, 'x', -0.025 * strength, 10, dt);
+        }
+
+        if (performanceState.head === 'small_nod') {
+          const nod = Math.sin(time * 2.4) * 0.055 * strength;
+          addRotation(bones.neck, 'x', nod * 0.35, 9, dt);
+          addRotation(bones.neck1, 'x', nod * 0.25, 9, dt);
+          addRotation(bones.neck2, 'x', nod * 0.20, 9, dt);
+          addRotation(bones.head, 'x', nod, 9, dt);
+        } else if (performanceState.head === 'slight_tilt') {
+          addRotation(bones.neck, 'z', 0.045 * strength, 8, dt);
+          addRotation(bones.neck1, 'z', 0.035 * strength, 8, dt);
+          addRotation(bones.head, 'z', 0.075 * strength, 8, dt);
+        } else if (performanceState.head === 'soft_tilt') {
+          addRotation(bones.neck, 'z', 0.035 * strength, 8, dt);
+          addRotation(bones.head, 'z', 0.065 * strength, 8, dt);
+        } else if (performanceState.head === 'downward_soft') {
+          addRotation(bones.neck, 'x', 0.055 * strength, 8, dt);
+          addRotation(bones.neck1, 'x', 0.040 * strength, 8, dt);
+          addRotation(bones.head, 'x', 0.080 * strength, 8, dt);
+        } else if (performanceState.head === 'firm') {
+          addRotation(bones.spine2, 'x', -0.025 * strength, 8, dt);
+          addRotation(bones.neck, 'x', -0.018 * strength, 8, dt);
+          addRotation(bones.head, 'x', -0.015 * strength, 8, dt);
+        } else if (performanceState.head === 'upright') {
+          addRotation(bones.spine2, 'x', -0.035 * strength, 8, dt);
+          addRotation(bones.head, 'x', -0.018 * strength, 8, dt);
+        }
+
+        if (performanceState.body === 'open_posture' || performanceState.body === 'upright') {
+          addRotation(bones.lShoulder, 'z', 0.035 * strength, 8, dt);
+          addRotation(bones.rShoulder, 'z', -0.035 * strength, 8, dt);
+          addRotation(bones.spine2, 'x', -0.025 * strength, 7, dt);
+        } else if (performanceState.body === 'forward_lean') {
+          addRotation(bones.spine, 'x', -0.045 * strength, 7, dt);
+          addRotation(bones.spine1, 'x', -0.035 * strength, 7, dt);
+          addRotation(bones.spine2, 'x', -0.025 * strength, 7, dt);
+        } else if (performanceState.body === 'softened' || performanceState.body === 'relaxed') {
+          addRotation(bones.spine2, 'x', 0.018 * strength, 7, dt);
+          addRotation(bones.lShoulder, 'z', -0.025 * strength, 7, dt);
+          addRotation(bones.rShoulder, 'z', 0.025 * strength, 7, dt);
+        } else if (performanceState.body === 'athletic') {
+          addRotation(bones.spine2, 'x', -0.035 * strength, 7, dt);
+          addRotation(bones.lArm, 'z', 0.08 * strength, 7, dt);
+          addRotation(bones.rArm, 'z', -0.08 * strength, 7, dt);
+        }
 
         /*
          * Always maintain a subtle breathing motion.
