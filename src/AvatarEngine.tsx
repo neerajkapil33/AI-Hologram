@@ -460,6 +460,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
     const expressionMorphs: Morph[] = [];
+    // Expression references supplied by the user: neutral, natural smile/teeth,
+    // open-mouth laugh/speech, rounded O-mouth, and broad grin.
+    let facialPreset = 'neutral';
     const fingerBones: { left: THREE.Bone[]; right: THREE.Bone[] } = { left: [], right: [] };
     const adaptiveProfile = { arm: 1, forearm: 1, hand: 1, leg: 1, ankle: 1, spine: 1 };
 
@@ -1204,8 +1207,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               : 'neutral';
 
         const normalizedExpression = expressionSource.toLowerCase();
-        if (/smile|happy|warm|kind|positive|confident/.test(normalizedExpression)) {
+        if (/laugh|laughter/.test(normalizedExpression)) {
+          expression = 'excited';
+          facialPreset = 'laugh';
+        } else if (/o-mouth|rounded|oh-mouth|oo-mouth/.test(normalizedExpression)) {
+          expression = 'excited';
+          facialPreset = 'o-mouth';
+        } else if (/smile|happy|warm|kind|positive|confident/.test(normalizedExpression)) {
           expression = 'smile';
+          facialPreset = /grin|teeth|broad/.test(normalizedExpression) ? 'grin' : 'smile';
         } else if (/sad|grief|hurt/.test(normalizedExpression)) {
           expression = 'sad';
         } else if (/thinking|thoughtful|confused|curious|smart/.test(normalizedExpression)) {
@@ -1249,40 +1259,40 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
 
       if (cmd.type === 'expression') {
-        const value =
-          cmd.value.toLowerCase();
+        const value = cmd.value.toLowerCase();
 
-        if (
-          /speaking|talk/.test(value)
-        ) {
-          speaking = true;
-        }
-
-        if (
-          /neutral|rest|stop/.test(value)
-        ) {
+        if (/neutral|rest|calm|stop/.test(value)) {
           speaking = false;
           expression = 'neutral';
-
-          playNative(
-            [/idle/, /stand/, /breath/, /rest/, /neutral/],
-            true,
-            true,
-          );
-        }
-
-        if (
-          /smile|happy|warm|positive|confident/.test(
-            value,
-          )
-        ) {
+          facialPreset = 'neutral';
+          playNative([/idle/, /stand/, /breath/, /rest/, /neutral/], true, true);
+        } else if (/laugh|laughter/.test(value)) {
+          expression = 'excited';
+          facialPreset = 'laugh';
+        } else if (/broad-smile|big-smile|teeth|grin/.test(value)) {
           expression = 'smile';
-        }
-
-        if (/sad/.test(value)) {
+          facialPreset = 'grin';
+        } else if (/smile|happy|warm|positive|confident/.test(value)) {
+          expression = 'smile';
+          facialPreset = 'smile';
+        } else if (/o-mouth|rounded-mouth|oh-mouth|oo-mouth/.test(value)) {
+          expression = 'excited';
+          facialPreset = 'o-mouth';
+        } else if (/surprise|surprised|astonished|excited/.test(value)) {
+          expression = 'excited';
+          facialPreset = 'surprised';
+        } else if (/sad|grief|hurt|frown/.test(value)) {
           expression = 'sad';
+          facialPreset = 'sad';
+        } else if (/thinking|thoughtful|confused|curious|smart/.test(value)) {
+          expression = 'thinking';
+          facialPreset = 'thinking';
+        } else if (/firm|angry|assertive|focused/.test(value)) {
+          expression = 'firm';
+          facialPreset = 'firm';
         }
 
+        if (/speaking|talk/.test(value)) speaking = true;
         return;
       }
 
@@ -1654,32 +1664,55 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
       setMorph(mouthTargets, mouth, 0.72);
 
-      // Always release the previous expression before applying the new one.
-      // This prevents smile/brow shapes from becoming permanently stuck.
-      setMorph(expressionMorphs, 0, 0.12);
+      // Facial reference-morph layer. Only morphs already embedded in the
+      // FBX are used; the uploaded reference photos guide the expression
+      // proportions but are never rendered into the avatar.
+      const faceTargetRules: Record<string, { re: RegExp; weight: number }[]> = {
+        neutral: [],
+        smile: [
+          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.34 },
+          { re: /teethshow|teeth|upperteeth/, weight: 0.16 },
+        ],
+        grin: [
+          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.56 },
+          { re: /teethshow|teeth|upperteeth/, weight: 0.42 },
+        ],
+        laugh: [
+          { re: /smile|happy|mouthsmile|lipcorner|cheek/, weight: 0.48 },
+          { re: /mouthopen|jawopen|open|laugh|aa|ah/, weight: 0.56 },
+          { re: /teethshow|teeth|upperteeth/, weight: 0.30 },
+        ],
+        'o-mouth': [
+          { re: /mouthopen|jawopen|open|oh|ao|oo|uh|round|pucker/, weight: 0.54 },
+          { re: /lipround|lippucker|pucker|round/, weight: 0.46 },
+        ],
+        surprised: [
+          { re: /surprise|wide|browraise|browup|forehead/, weight: 0.42 },
+          { re: /mouthopen|jawopen|open|oh|ao/, weight: 0.38 },
+        ],
+        sad: [
+          { re: /sad|frown|mouthdown|lipcornerdown|browinnerup/, weight: 0.28 },
+        ],
+        thinking: [
+          { re: /brow|confus|think|frown/, weight: 0.22 },
+        ],
+        firm: [
+          { re: /angry|frown|brow|tension|press/, weight: 0.25 },
+        ],
+      };
 
-      const faceExpression = expression;
-      if (faceExpression !== 'neutral' && expressionMorphs.length) {
-        const expressionTargets = expressionMorphs.filter((item) => {
-          const n = norm(item.name);
-          if (faceExpression === 'smile' || faceExpression === 'happy' || faceExpression === 'warm') {
-            return /smile|happy|mouthsmile|lipcorner|cheek/.test(n);
-          }
-          if (faceExpression === 'sad' || faceExpression === 'concerned') {
-            return /sad|frown|brow|mouthdown|lipcorner/.test(n);
-          }
-          if (faceExpression === 'surprised' || faceExpression === 'excited') {
-            return /surprise|wide|brow|open/.test(n);
-          }
-          if (faceExpression === 'angry' || faceExpression === 'firm') {
-            return /angry|frown|brow|tension/.test(n);
-          }
-          if (faceExpression === 'thinking' || faceExpression === 'confused') {
-            return /brow|confus|think|frown/.test(n);
-          }
-          return false;
-        });
-        setMorph(expressionTargets, faceExpression === 'surprised' || faceExpression === 'excited' ? 0.42 : 0.34, 0.24);
+      setMorph(expressionMorphs, 0, 0.16);
+      const presetRules = faceTargetRules[facialPreset] ?? faceTargetRules.neutral;
+      for (const rule of presetRules) {
+        setMorph(
+          expressionMorphs.filter((item) => rule.re.test(norm(item.name))),
+          rule.weight,
+          0.20,
+        );
+      }
+
+      if (facialPreset === 'laugh') {
+        targetMouth = Math.max(targetMouth, 0.38 + Math.abs(Math.sin(time * 7)) * 0.18);
       }
 
       // Fallback jaw articulation for FBX rigs without usable lip morphs.
