@@ -932,11 +932,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
         }
       }
-      // Workstation is placed in front of the chair so seated writing uses
-      // a natural hip-to-elbow reach rather than twisting sideways.
-      // Furniture lives beside the avatar, never directly in front of it.
-      // The chair is to the avatar's left; the table sits further left.
-      chair.position.set(-scale * 0.78, 0, -scale * 0.02);
+      // Furniture is intentionally offset to the avatar's side so the
+      // central walking lane remains clear. The avatar turns toward the
+      // workstation only when an interaction command requires it.
       table.position.set(-scale * 1.22, 0, scale * 0.02);
 
       const book = new THREE.Group();
