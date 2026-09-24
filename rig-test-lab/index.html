@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AURA — External Rig Test Lab</title>
+<style>
+:root{color-scheme:dark;--bg:#050914;--panel:#0c1220;--card:#121a2a;--line:#27344b;--text:#eef3fb;--muted:#93a3ba;--accent:#8fb7ff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#17243d 0,#050914 45%);color:var(--text);font:14px Inter,system-ui,sans-serif}
+header{padding:18px 20px;border-bottom:1px solid var(--line);background:#080e19e8;backdrop-filter:blur(10px);position:sticky;top:0;z-index:5}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--muted);font-size:12px}
+main{max-width:1400px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0}
+#view{width:100%;height:min(72vh,720px);display:block;background:#030711}
+.controls{padding:12px;display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line)}
+button,select,input{font:inherit}button{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:9px;padding:10px 13px;cursor:pointer;min-height:42px}button:hover{border-color:var(--accent)}button.active{background:#203253;border-color:var(--accent)}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;overflow:auto;max-height:calc(min(72vh,720px) + 100px)}
+h2{font-size:14px;margin:0 0 10px}.status{padding:10px;border-radius:9px;background:var(--card);border:1px solid var(--line);margin-bottom:12px;color:var(--muted);line-height:1.45}
+.group{margin:12px 0}.group h3{font-size:12px;color:var(--muted);margin:0 0 7px}.slider{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px;margin:6px 0}.slider label{display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px}.slider input{width:100%}
+.result{display:flex;justify-content:space-between;padding:8px;border-bottom:1px solid #1e293b;font-size:12px}.pass{color:#8de0a7}.warn{color:#ffd37d}.fail{color:#ff8e8e}
+.note{color:var(--muted);font-size:11px;line-height:1.5;margin-top:12px}
+@media(max-width:900px){main{grid-template-columns:1fr}aside{max-height:none}#view{height:58vh}}
+</style>
+</head>
+<body>
+<header><h1>AURA — External Rig Test Lab</h1><div class="sub">Raw FBX diagnostic • AnimationMixer OFF • AvatarEngine OFF • direct bone control</div></header>
+<main>
+<section class="stage">
+<canvas id="view"></canvas>
+<div class="controls">
+<button data-pose="neutral" class="active">Neutral</button>
+<button data-pose="empathetic">Empathetic</button>
+<button data-pose="thinking">Processing</button>
+<button data-pose="insight">Direct Insight</button>
+<button data-pose="correction">Correction</button>
+<button id="reset">Reset</button>
+<button id="frame">Frame Avatar</button>
+</div>
+</section>
+<aside>
+<h2>Rig certification</h2>
+<div id="status" class="status">Loading the production FBX…</div>
+<div id="results"></div>
+<div id="sliders"></div>
+<div class="note">Use the sliders to move actual bones. A working bone must rotate and visibly deform the mesh. If a joint works here but not in AURA, the restriction is in the production controller rather than the FBX rig.</div>
+</aside>
+</main>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/+esm";
+import {FBXLoader} from "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/FBXLoader.js";
+
+const canvas=document.querySelector("#view");
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x030711);
+scene.add(new THREE.HemisphereLight(0xffffff,0x182238,2.1));
+const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(3,5,5);scene.add(key);
+const fill=new THREE.DirectionalLight(0x91b7ff,1.1);fill.position.set(-4,2,3);scene.add(fill);
+const grid=new THREE.GridHelper(5,25,0x26334b,0x151e30);scene.add(grid);
+
+const camera=new THREE.PerspectiveCamera(28,1,.01,100);
+let avatar,bones={},original=new Map(),bodySize=1;
+
+function resize(){
+ const w=canvas.clientWidth,h=canvas.clientHeight;
+ renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
+}
+addEventListener("resize",resize);
+
+function frameAvatar(){
+ if(!avatar)return;
+ const box=new THREE.Box3().setFromObject(avatar),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
+ bodySize=Math.max(size.x,size.y,size.z);
+ camera.position.set(0,bodySize*.48,bodySize*1.85);
+ camera.lookAt(0,bodySize*.48,0);
+}
+
+function restore(){
+ Object.values(bones).forEach(b=>{const r=original.get(b);if(r)b.rotation.copy(r)});
+ document.querySelectorAll(".slider input").forEach(i=>i.value=0);
+ document.querySelectorAll(".slider .v").forEach(v=>v.textContent="0°");
+}
+
+function setBone(name,axis,value){
+ const b=bones[name]; if(!b)return false;
+ const r=original.get(b); if(!r)return false;
+ b.rotation.copy(r);
+ if(axis==="x")b.rotation.x=r.x+value*Math.PI/180;
+ if(axis==="y")b.rotation.y=r.y+value*Math.PI/180;
+ if(axis==="z")b.rotation.z=r.z+value*Math.PI/180;
+ return true;
+}
+
+const configs={
+"Head / Neck":[
+["Neck X","Neck","x"],["Neck Y","Neck","y"],["Neck Z","Neck","z"],
+["Neck1 X","Neck1","x"],["Neck1 Y","Neck1","y"],["Neck1 Z","Neck1","z"],
+["Neck2 X","Neck2","x"],["Neck2 Y","Neck2","y"],["Neck2 Z","Neck2","z"],
+["Head X","Head","x"],["Head Y","Head","y"],["Head Z","Head","z"]],
+"Arms / Elbows":[
+["L Shoulder X","LeftShoulder","x"],["L Arm X","LeftArm","x"],["L Arm Y","LeftArm","y"],["L Arm Z","LeftArm","z"],
+["L Elbow X","LeftForeArm","x"],["L Elbow Y","LeftForeArm","y"],["L Elbow Z","LeftForeArm","z"],
+["L Wrist X","LeftHand","x"],["L Wrist Y","LeftHand","y"],["L Wrist Z","LeftHand","z"],
+["R Shoulder X","RightShoulder","x"],["R Arm X","RightArm","x"],["R Arm Y","RightArm","y"],["R Arm Z","RightArm","z"],
+["R Elbow X","RightForeArm","x"],["R Elbow Y","RightForeArm","y"],["R Elbow Z","RightForeArm","z"],
+["R Wrist X","RightHand","x"],["R Wrist Y","RightHand","y"],["R Wrist Z","RightHand","z"]],
+"Hands / Fingers":[
+["L Index 1","LeftHandIndex1","x"],["L Index 2","LeftHandIndex2","x"],["L Index 3","LeftHandIndex3","x"],
+["L Middle 1","LeftHandMiddle1","x"],["L Middle 2","LeftHandMiddle2","x"],["L Ring 1","LeftHandRing1","x"],["L Pinky 1","LeftHandPinky1","x"],
+["R Index 1","RightHandIndex1","x"],["R Index 2","RightHandIndex2","x"],["R Index 3","RightHandIndex3","x"],
+["R Middle 1","RightHandMiddle1","x"],["R Middle 2","RightHandMiddle2","x"],["R Ring 1","RightHandRing1","x"],["R Pinky 1","RightHandPinky1","x"]],
+"Legs / Knees":[
+["L Hip X","LeftUpLeg","x"],["L Hip Y","LeftUpLeg","y"],["L Hip Z","LeftUpLeg","z"],["L Knee X","LeftLeg","x"],["L Knee Y","LeftLeg","y"],["L Knee Z","LeftLeg","z"],["L Ankle X","LeftFoot","x"],["L Ankle Y","LeftFoot","y"],
+["R Hip X","RightUpLeg","x"],["R Hip Y","RightUpLeg","y"],["R Hip Z","RightUpLeg","z"],["R Knee X","RightLeg","x"],["R Knee Y","RightLeg","y"],["R Knee Z","RightLeg","z"],["R Ankle X","RightFoot","x"],["R Ankle Y","RightFoot","y"]],
+"Spine / Hips":[
+["Hips X","Hips","x"],["Hips Y","Hips","y"],["Hips Z","Hips","z"],["Spine X","Spine","x"],["Spine Y","Spine","y"],["Spine Z","Spine","z"],["Spine1 X","Spine1","x"],["Spine1 Y","Spine1","y"],["Spine1 Z","Spine1","z"],["Spine2 X","Spine2","x"],["Spine2 Y","Spine2","y"],["Spine2 Z","Spine2","z"]]
+};
+
+function makeSlider(label,bone,axis){
+ const d=document.createElement("div");d.className="slider";
+ d.innerHTML="<label><span>"+label+"</span><span class='v'>0°</span></label><input type='range' min='-90' max='90' value='0' step='1'>";
+ const input=d.querySelector("input"),v=d.querySelector(".v");
+ input.addEventListener("input",()=>{v.textContent=input.value+"°";setBone(bone,axis,+input.value)});
+ return d;
+}
+
+function showGroup(group){
+ const host=document.querySelector("#sliders");host.innerHTML="";
+ (configs[group]||[]).forEach(a=>host.appendChild(makeSlider(a[0],a[1],a[2])));
+}
+
+function pose(kind){
+ restore();const d=Math.PI/180;
+ const p={
+ empathetic:[["Neck",-3,0,0],["Neck1",-2,0,0],["Neck2",0,0,5],["Head",0,0,5],["Spine2",-3,0,0],["LeftArm",0,0,-15],["RightArm",0,0,15],["LeftForeArm",-15,0,0],["RightForeArm",-15,0,0]],
+ thinking:[["Head",-6,0,0],["Neck",-2,0,0],["Neck1",-2,0,0],["RightArm",-25,0,20],["RightForeArm",-55,0,0],["LeftArm",15,0,-25],["LeftForeArm",-45,0,0]],
+ insight:[["Spine1",-2,0,0],["Spine2",-3,0,0],["Neck",-2,0,0],["Head",3,0,0],["LeftArm",-20,0,-30],["RightArm",-20,0,30],["LeftForeArm",-20,0,0],["RightForeArm",-20,0,0]],
+ correction:[["Head",0,10,0],["Neck",0,3,0],["Neck1",0,3,0],["LeftArm",-15,0,-10],["RightArm",-15,0,10],["LeftForeArm",-10,0,0],["RightForeArm",-10,0,0]]
+ }[kind]||[];
+ p.forEach(([n,x,y,z])=>{const b=bones[n];if(!b)return;const r=original.get(b);b.rotation.set(r.x+x*d,r.y+y*d,r.z+z*d)});
+}
+
+function report(){
+ const groups={
+ "Head":["Head","Neck","Neck1","Neck2"],
+ "Eyes":["LeftEye","RightEye"],
+ "Spine":["Hips","Spine","Spine1","Spine2"],
+ "Left Arm":["LeftShoulder","LeftArm","LeftForeArm","LeftHand"],
+ "Right Arm":["RightShoulder","RightArm","RightForeArm","RightHand"],
+ "Left Leg":["LeftUpLeg","LeftLeg","LeftFoot","LeftToeBase"],
+ "Right Leg":["RightUpLeg","RightLeg","RightFoot","RightToeBase"],
+ "Fingers":["LeftHandIndex1","LeftHandMiddle1","LeftHandRing1","LeftHandPinky1","RightHandIndex1","RightHandMiddle1","RightHandRing1","RightHandPinky1"]
+ };
+ const out=document.querySelector("#results");out.innerHTML="";
+ for(const [g,n] of Object.entries(groups)){
+  const missing=n.filter(x=>!bones[x]);const div=document.createElement("div");div.className="result";
+  div.innerHTML="<span>"+g+"</span><span class='"+(missing.length?"warn":"pass")+"'>"+(missing.length?"⚠ "+missing.join(", "):"✓ mapped")+"</span>";
+  out.appendChild(div);
+ }
+}
+
+try{
+ avatar=await new FBXLoader().loadAsync("https://raw.githubusercontent.com/neerajkapil33/AI-Hologram/main/public/avatar/model.fbx");
+ avatar.traverse(o=>{if(o.isMesh){o.frustumCulled=false;o.castShadow=true;o.receiveShadow=true}if(o.isBone)bones[o.name]=o});
+ scene.add(avatar);
+ Object.values(bones).forEach(b=>original.set(b,b.rotation.clone()));
+ frameAvatar();resize();report();showGroup("Head / Neck");
+ document.querySelector("#status").innerHTML="<span class='pass'>✓ FBX loaded</span><br>"+Object.keys(bones).length+" bones detected<br>AnimationMixer: OFF<br>AvatarEngine: OFF<br>Direct bone mode: ON";
+}catch(e){document.querySelector("#status").innerHTML="<span class='fail'>✕ FBX load failed</span><br>"+e.message}
+
+document.querySelectorAll("[data-pose]").forEach(b=>b.addEventListener("click",()=>{
+ document.querySelectorAll("[data-pose]").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+ pose(b.dataset.pose);
+}));
+document.querySelector("#reset").addEventListener("click",()=>{restore();document.querySelectorAll("[data-pose]").forEach(x=>x.classList.remove("active"));document.querySelector("[data-pose='neutral']").classList.add("active")});
+document.querySelector("#frame").addEventListener("click",frameAvatar);
+
+const groupButtons=[["Head / Neck","Head / Neck"],["Arms / Elbows","Arms / Elbows"],["Hands / Fingers","Hands / Fingers"],["Legs / Knees","Legs / Knees"],["Spine / Hips","Spine / Hips"]];
+groupButtons.forEach(([g])=>{const b=document.createElement("button");b.textContent="Test "+g;b.onclick=()=>showGroup(g);document.querySelector(".controls").appendChild(b)});
+
+function loop(){requestAnimationFrame(loop);renderer.render(scene,camera)}loop();
+</script>
+</body>
+</html>
