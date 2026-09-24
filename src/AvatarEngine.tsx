@@ -527,21 +527,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     };
 
     const applyRestArms = (map: BoneMap, h: number, dt: number, speed = 10) => {
-      // True anatomical rest pose: the upper arm and forearm are each aimed
-      // straight down from their current joint. Do not use a hand target that
-      // is shorter than the combined arm length; a shortened IK target forces
-      // the elbow to bend. This also remains correct when the avatar rotates.
+      // Anatomical attention pose: arms hang vertically and touch/track the
+      // sides of the torso. The elbow is explicitly kept fully extended.
+      // We do not solve the arm as a shortened two-bone chain here because
+      // that can create an artificial elbow angle.
       const down = new THREE.Vector3(0, -1, 0);
+      const side = getAvatarRight();
 
-      poseBoneToward(map.lArm, down, speed, dt);
+      const leftUpper = down.clone().add(side.clone().multiplyScalar(0.006)).normalize();
+      const rightUpper = down.clone().add(side.clone().multiplyScalar(-0.006)).normalize();
+
+      poseBoneToward(map.lArm, leftUpper, speed, dt);
       poseBoneToward(map.lFore, down, speed, dt);
-      poseBoneToward(map.rArm, down, speed, dt);
+      poseBoneToward(map.rArm, rightUpper, speed, dt);
       poseBoneToward(map.rFore, down, speed, dt);
 
-      // Wrist stays in the FBX's neutral/rest orientation. Fingers remain
-      // relaxed without introducing an elbow bend or pulling the hands back.
       neutralizeHand(map.lHand, speed, dt);
       neutralizeHand(map.rHand, speed, dt);
+
+      // No outward hand offset: the hands remain directly beneath the
+      // shoulders/upper arms and as close to the body as the mesh permits.
       fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
       fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
     };
