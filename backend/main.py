@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .brain import Brain
 from .performance import PerformanceDirector
+from .motor_brain import MotorBrain
 from .stt import STT
 from .tavus import Tavus
 from .tts import TTS
@@ -47,6 +48,7 @@ tts = TTS()
 stt = STT()
 tavus = Tavus()
 performance = PerformanceDirector()
+motor_brain = MotorBrain()
 
 
 @app.get("/health")
@@ -61,6 +63,9 @@ async def health():
         "tavus": tavus.configured,
         "persona": "neeraj-ai-career-companion",
         "performance_director": True,
+        "motor_brain": True,
+        "motor_brain_mode": "semantic_goal_to_posture_plan",
+        "motor_brain_knowledge": list(MotorBrain.KNOWLEDGE.keys()),
         "capabilities": [
             "conversation",
             "multilingual",
@@ -172,6 +177,14 @@ async def ws(websocket: WebSocket):
             performance_data = await asyncio.to_thread(
                 performance.direct,
                 answer,
+            )
+            # The motor brain receives the user's explicit physical intent as
+            # well as the language-model answer. This prevents a conversational
+            # reply from erasing a concrete command such as "sit on the chair".
+            performance_data = await asyncio.to_thread(
+                motor_brain.apply,
+                user_text,
+                performance_data,
             )
 
             await websocket.send_json(
