@@ -75,6 +75,41 @@ function findExactBone(
   return result;
 }
 
+function findAncestorBone(
+  start: THREE.Bone | null,
+  names: string[],
+): THREE.Bone | null {
+  if (!start) return null;
+
+  const wanted = new Set(names.map(norm));
+  let current: THREE.Object3D | null = start.parent;
+
+  while (current) {
+    if (current instanceof THREE.Bone && wanted.has(norm(current.name))) {
+      return current;
+    }
+    current = current.parent;
+  }
+
+  return null;
+}
+
+function collectDescendantBones(
+  start: THREE.Bone | null,
+  pattern: RegExp,
+): THREE.Bone[] {
+  if (!start) return [];
+
+  const result: THREE.Bone[] = [];
+
+  start.traverse((object) => {
+    if (!(object instanceof THREE.Bone)) return;
+    if (pattern.test(norm(object.name))) result.push(object);
+  });
+
+  return result;
+}
+
 function findBones(root: THREE.Object3D): BoneMap {
   const bones: BoneMap = {
     root: null,
@@ -126,24 +161,154 @@ function findBones(root: THREE.Object3D): BoneMap {
   bones.neck2 = findExactBone(root, ['Neck2']);
   bones.head = findExactBone(root, ['Head']);
 
-  bones.lShoulder = findExactBone(root, ['LeftShoulder']);
-  bones.rShoulder = findExactBone(root, ['RightShoulder']);
+  bones.lHand = findExactBone(root, ['LeftHand', 'LHand']);
+  bones.rHand = findExactBone(root, ['RightHand', 'RHand']);
 
-  bones.lArm = findExactBone(root, ['LeftArm']);
-  bones.rArm = findExactBone(root, ['RightArm']);
+  // The FBX contains parallel forearm branches (for example LeftForeArm1/2).
+  // Resolve the actual deforming chain from the hand upward instead of picking
+  // the first matching name in the scene.
+  bones.lFore =
+    findAncestorBone(bones.lHand, [
+      'LeftForeArm',
+      'LeftForeArm1',
+      'LeftForeArm2',
+      'LeftLowerArm',
+      'LForeArm',
+      'LForeArm1',
+      'LForeArm2',
+    ]) ??
+    findExactBone(root, ['LeftForeArm', 'LeftForeArm1', 'LeftForeArm2']);
 
-  bones.lFore = findExactBone(root, ['LeftForeArm']);
-  bones.rFore = findExactBone(root, ['RightForeArm']);
+  bones.rFore =
+    findAncestorBone(bones.rHand, [
+      'RightForeArm',
+      'RightForeArm1',
+      'RightForeArm2',
+      'RightLowerArm',
+      'RForeArm',
+      'RForeArm1',
+      'RForeArm2',
+    ]) ??
+    findExactBone(root, ['RightForeArm', 'RightForeArm1', 'RightForeArm2']);
 
-  bones.lHand = findExactBone(root, ['LeftHand']);
-  bones.rHand = findExactBone(root, ['RightHand']);
+  bones.lArm =
+    findAncestorBone(bones.lFore, [
+      'LeftArm',
+      'LeftUpperArm',
+      'LArm',
+      'LUpperArm',
+    ]) ??
+    findExactBone(root, ['LeftArm', 'LeftUpperArm', 'LArm', 'LUpperArm']);
 
-  bones.lThigh = findExactBone(root, ['LeftUpLeg', 'LeftThigh', 'LThigh', 'LUpLeg']);
-  bones.rThigh = findExactBone(root, ['RightUpLeg', 'RightThigh', 'RThigh', 'RUpLeg']);
-  bones.lCalf = findExactBone(root, ['LeftLeg', 'LeftCalf', 'LCalf', 'LLeg']);
-  bones.rCalf = findExactBone(root, ['RightLeg', 'RightCalf', 'RCalf', 'RLeg']);
-  bones.lFoot = findExactBone(root, ['LeftFoot', 'LFoot', 'LeftAnkle', 'LAnkle']);
-  bones.rFoot = findExactBone(root, ['RightFoot', 'RFoot', 'RightAnkle', 'RAnkle']);
+  bones.rArm =
+    findAncestorBone(bones.rFore, [
+      'RightArm',
+      'RightUpperArm',
+      'RArm',
+      'RUpperArm',
+    ]) ??
+    findExactBone(root, ['RightArm', 'RightUpperArm', 'RArm', 'RUpperArm']);
+
+  bones.lShoulder =
+    findAncestorBone(bones.lArm, [
+      'LeftShoulder',
+      'LShoulder',
+      'LeftClavicle',
+      'LClavicle',
+    ]) ??
+    findExactBone(root, ['LeftShoulder', 'LShoulder']);
+
+  bones.rShoulder =
+    findAncestorBone(bones.rArm, [
+      'RightShoulder',
+      'RShoulder',
+      'RightClavicle',
+      'RClavicle',
+    ]) ??
+    findExactBone(root, ['RightShoulder', 'RShoulder']);
+
+  bones.lFoot = findExactBone(root, [
+    'LeftFoot',
+    'LFoot',
+    'LeftAnkle',
+    'LAnkle',
+  ]);
+  bones.rFoot = findExactBone(root, [
+    'RightFoot',
+    'RFoot',
+    'RightAnkle',
+    'RAnkle',
+  ]);
+
+  // Resolve the leg chain from the actual foot bone. This avoids confusing
+  // a bone named "LeftLeg" with either the thigh or calf when the FBX uses
+  // a non-standard naming convention.
+  bones.lCalf =
+    findAncestorBone(bones.lFoot, [
+      'LeftLeg',
+      'LeftCalf',
+      'LeftLowerLeg',
+      'LCalf',
+      'LLeg',
+      'LLowerLeg',
+    ]) ??
+    findExactBone(root, [
+      'LeftCalf',
+      'LeftLowerLeg',
+      'LCalf',
+      'LLeg',
+    ]);
+
+  bones.rCalf =
+    findAncestorBone(bones.rFoot, [
+      'RightLeg',
+      'RightCalf',
+      'RightLowerLeg',
+      'RCalf',
+      'RLeg',
+      'RLowerLeg',
+    ]) ??
+    findExactBone(root, [
+      'RightCalf',
+      'RightLowerLeg',
+      'RCalf',
+      'RLeg',
+    ]);
+
+  bones.lThigh =
+    findAncestorBone(bones.lCalf, [
+      'LeftUpLeg',
+      'LeftThigh',
+      'LeftUpperLeg',
+      'LThigh',
+      'LUpLeg',
+      'LUpperLeg',
+    ]) ??
+    findExactBone(root, [
+      'LeftUpLeg',
+      'LeftThigh',
+      'LeftUpperLeg',
+      'LThigh',
+      'LUpLeg',
+    ]);
+
+  bones.rThigh =
+    findAncestorBone(bones.rCalf, [
+      'RightUpLeg',
+      'RightThigh',
+      'RightUpperLeg',
+      'RThigh',
+      'RUpLeg',
+      'RUpperLeg',
+    ]) ??
+    findExactBone(root, [
+      'RightUpLeg',
+      'RightThigh',
+      'RightUpperLeg',
+      'RThigh',
+      'RUpLeg',
+    ]);
+
   bones.jaw = findExactBone(root, ['Jaw', 'LowerJaw', 'Mandible']);
 
   bones.lEye = findExactBone(root, [
@@ -865,6 +1030,27 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         });
 
         bones = findBones(loaded);
+
+        // Drive only fingers that actually descend from the resolved hand
+        // bones. This prevents unrelated/parallel FBX finger branches from
+        // receiving the gesture controller's rotations.
+        const leftHandFingerBones = collectDescendantBones(
+          bones.lHand,
+          /thumb|index|middle|ring|pinky|little|finger|metacarp|proximal|distal/,
+        );
+
+        const rightHandFingerBones = collectDescendantBones(
+          bones.rHand,
+          /thumb|index|middle|ring|pinky|little|finger|metacarp|proximal|distal/,
+        );
+
+        if (leftHandFingerBones.length || rightHandFingerBones.length) {
+          fingerBones.left.length = 0;
+          fingerBones.right.length = 0;
+          fingerBones.left.push(...leftHandFingerBones);
+          fingerBones.right.push(...rightHandFingerBones);
+        }
+
         console.info('[Neeraj Avatar] MOTION ROOT CAUSE CHECK', { nativeClips: loaded.animations.map((c) => c.name), bones, fingerCount: fingerBones.left.length + fingerBones.right.length,
           morphCount: morphs.length,
           blinkMorphCount: blinkMorphs.length,
