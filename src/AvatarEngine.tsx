@@ -474,6 +474,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     // This keeps the same AvatarEngine as the single body controller while
     // making arm/leg motion independent of the FBX local-axis convention.
     const restPose = new Map<THREE.Bone, RestBonePose>();
+    const restWorldPositions = new Map<THREE.Bone, THREE.Vector3>();
 
     const originalRotation = new Map<
       THREE.Bone,
@@ -530,6 +531,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           worldQuaternion: worldQuaternion.clone(),
           worldDirection: direction.normalize(),
         });
+        restWorldPositions.set(object, start.clone());
       });
     };
 
@@ -602,6 +604,74 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
       const alpha = 1 - Math.exp(-speed * Math.max(dt, 0.001));
       bone.quaternion.slerp(targetLocal, THREE.MathUtils.clamp(alpha, 0, 1));
+    };
+
+    const solveTwoBoneIK = (
+      upper: THREE.Bone | null,
+      lower: THREE.Bone | null,
+      end: THREE.Bone | null,
+      targetWorld: THREE.Vector3,
+      poleWorld: THREE.Vector3,
+      speed: number,
+      dt: number,
+    ) => {
+      if (!upper || !lower || !end) return;
+
+      model?.updateMatrixWorld(true);
+
+      const rootPos = new THREE.Vector3();
+      const midPos = new THREE.Vector3();
+      const endPos = new THREE.Vector3();
+      upper.getWorldPosition(rootPos);
+      lower.getWorldPosition(midPos);
+      end.getWorldPosition(endPos);
+
+      const upperLength = Math.max(rootPos.distanceTo(midPos), 0.001);
+      const lowerLength = Math.max(midPos.distanceTo(endPos), 0.001);
+
+      const toTarget = targetWorld.clone().sub(rootPos);
+      const rawDistance = toTarget.length();
+      if (rawDistance < 0.001) return;
+
+      const maxReach = Math.max(0.001, upperLength + lowerLength - 0.002);
+      const minReach = Math.max(0.001, Math.abs(upperLength - lowerLength) + 0.002);
+      const distance = THREE.MathUtils.clamp(rawDistance, minReach, maxReach);
+      const target = rootPos.clone().add(toTarget.normalize().multiplyScalar(distance));
+
+      // Human legs/arms are two-link chains. The pole vector chooses the
+      // anatomical bend direction instead of independently aiming thigh/calf.
+      const axis = target.clone().sub(rootPos).normalize();
+      const pole = poleWorld.clone().sub(rootPos);
+      pole.sub(axis.clone().multiplyScalar(pole.dot(axis)));
+      if (pole.lengthSq() < 1e-6) pole.set(0, 0, -1);
+      pole.normalize();
+
+      const x = THREE.MathUtils.clamp(
+        (upperLength * upperLength - lowerLength * lowerLength + distance * distance) /
+          (2 * distance),
+        -upperLength,
+        upperLength,
+      );
+      const h = Math.sqrt(Math.max(0, upperLength * upperLength - x * x));
+      const kneeTarget = rootPos
+        .clone()
+        .add(axis.clone().multiplyScalar(x))
+        .add(pole.clone().multiplyScalar(h));
+
+      poseBoneToward(upper, kneeTarget.clone().sub(rootPos).normalize(), speed, dt);
+
+      // Re-read the knee after the upper leg rotates; this prevents the
+      // lower leg from being aimed at an impossible independent direction.
+      model?.updateMatrixWorld(true);
+      lower.getWorldPosition(midPos);
+      const lowerTargetDirection = target.clone().sub(midPos).normalize();
+      poseBoneToward(lower, lowerTargetDirection, speed, dt);
+
+      // Keep the ankle/hand approximately aligned with the requested target.
+      const endDirection = target.clone().sub(midPos).normalize();
+      if (endDirection.lengthSq() > 0.001) {
+        poseBoneToward(lower, endDirection, speed, dt);
+      }
     };
 
     const poseChain = (
@@ -789,6 +859,78 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       nativeMotion = false;
     };
 
+    const createFurniture = (height: number) => {
+      const group = new THREE.Group();
+      group.name = 'AURA_HUMAN_ENVIRONMENT';
+
+      const scale = Math.max(height, 1);
+      const wood = new THREE.MeshStandardMaterial({
+        color: 0x3a4652,
+        metalness: 0.15,
+        roughness: 0.62,
+        transparent: true,
+        opacity: 0.78,
+      });
+      const seat = new THREE.MeshStandardMaterial({
+        color: 0x20384a,
+        metalness: 0.08,
+        roughness: 0.72,
+        transparent: true,
+        opacity: 0.88,
+      });
+
+      const makeBox = (w: number, h: number, d: number, material: THREE.Material) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        group.add(mesh);
+        return mesh;
+      };
+
+      const chair = new THREE.Group();
+      chair.name = 'AURA_CHAIR';
+      const seatW = scale * 0.34;
+      const seatH = scale * 0.45;
+      const seatD = scale * 0.34;
+      makeBox(seatW, scale * 0.055, seatD, seat).position.y = seatH;
+      makeBox(seatW, scale * 0.48, scale * 0.055, seat).position.set(0, seatH + scale * 0.24, -seatD * 0.43);
+      const legH = seatH;
+      for (const x of [-1, 1]) {
+        for (const z of [-1, 1]) {
+          makeBox(scale * 0.035, legH, scale * 0.035, wood).position.set(
+            x * seatW * 0.42,
+            legH * 0.5,
+            z * seatD * 0.42,
+          );
+        }
+      }
+      chair.position.set(-scale * 0.72, 0, -scale * 0.02);
+      group.add(chair);
+
+      const table = new THREE.Group();
+      table.name = 'AURA_TABLE';
+      const tableW = scale * 0.72;
+      const tableD = scale * 0.46;
+      const tableH = scale * 0.56;
+      makeBox(tableW, scale * 0.045, tableD, wood).position.y = tableH;
+      for (const x of [-1, 1]) {
+        for (const z of [-1, 1]) {
+          makeBox(scale * 0.035, tableH, scale * 0.035, wood).position.set(
+            x * tableW * 0.42,
+            tableH * 0.5,
+            z * tableD * 0.40,
+          );
+        }
+      }
+      table.position.set(scale * 0.88, 0, -scale * 0.02);
+      group.add(table);
+
+      scene.add(group);
+      return group;
+    };
+
+    let furniture: THREE.Group | null = null;
+
     const setGlasses = (visible: boolean) => {
       glassesObjects.forEach((object) => { object.visible = visible; });
       setStatus(`3D AVATAR • GLASSES ${visible ? 'ON' : 'OFF'}`);
@@ -899,6 +1041,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'back-bend';
       } else if (/\b(bend|bending|bow|bowing|lean-forward|leaning-forward)\b/.test(value)) {
         gesture = 'bend';
+      } else if (/\b(go-to-chair|sit-on-chair|sit-chair|go-sit-chair|chair)\b/.test(value) ||
+                 /\b(go|walk|move).*\b(sit|chair)\b/.test(value)) {
+        gesture = 'sit-chair';
       } else if (/\b(sit|sitting|sit-down|sitdown)\b/.test(value)) {
         gesture = 'sit';
       } else if (/\b(stand|standing|stand-up|standup|rise|get-up)\b/.test(value)) {
@@ -1202,6 +1347,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           depth: Math.max(size.z, 0.1),
         };
         frameAvatar();
+
+        // Re-capture after the FBX is grounded/repositioned so IK targets
+        // are in the same world space as the normalized avatar.
+        captureRestPose(loaded);
+        furniture = createFurniture(height);
 
         nativeMotion = playNative(
           [
@@ -1707,33 +1857,32 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         /*
          * POINT
          */
-        else if (
-          gesture === 'point'
-        ) {
-          restoreBone(
-            bones.lArm,
-            7,
+        else if (gesture === 'point') {
+          restoreBone(bones.lArm, 7, dt);
+          restoreBone(bones.lFore, 7, dt);
+
+          const shoulder = new THREE.Vector3();
+          bones.rShoulder?.getWorldPosition(shoulder);
+          const target = shoulder.clone().add(new THREE.Vector3(0.10, -0.05, 1.02));
+
+          // Point uses the same natural forward reach as the handshake, but
+          // terminates in a stable index-finger extension toward the front.
+          solveTwoBoneIK(
+            bones.rArm,
+            bones.rFore,
+            bones.rHand,
+            target,
+            shoulder.clone().add(new THREE.Vector3(0, 0, -1)),
+            13,
             dt,
           );
 
-          restoreBone(
-            bones.lFore,
-            7,
-            dt,
-          );
-
-          poseChain(
-            [
-              { bone: bones.rArm, direction: new THREE.Vector3(0.02, 0.04, 1.0) },
-              { bone: bones.rFore, direction: new THREE.Vector3(0.01, 0.01, 1.0) },
-              { bone: bones.rHand, direction: new THREE.Vector3(0.0, 0.0, 1.0) },
-            ],
-            12,
-            dt,
-          );
-          fingerBones.right.forEach((finger, index) =>
-            addRotation(finger, 'x', index % 4 === 0 ? 0.0 : 0.16, 10, dt),
-          );
+          fingerBones.right.forEach((finger, index) => {
+            const n = norm(finger.name);
+            const isIndex = /index/.test(n);
+            addRotation(finger, 'x', isIndex ? 0.0 : 0.20, 12, dt);
+          });
+          addRotation(bones.rHand, 'x', -0.03, 10, dt);
         }
 
         /*
@@ -1790,20 +1939,45 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         /*
          * HANDSHAKE
          */
-        else if (
-          gesture === 'handshake'
-        ) {
-          const shakePhase = time * 8.5;
-          poseChain(
-            [
-              { bone: bones.rArm, direction: new THREE.Vector3(0.16, -0.22, 0.96) },
-              { bone: bones.rFore, direction: new THREE.Vector3(0.04, -0.34, 0.94) },
-            ],
-            10,
+        else if (gesture === 'handshake') {
+          // Human handshake: reach -> contact -> smooth damped pumps -> return.
+          // Published motion-capture work reports ~3.63 s total, with the
+          // main shake concentrated in the middle contact phase.
+          const elapsed = now - gestureStarted;
+          const reach = THREE.MathUtils.clamp(elapsed / 920, 0, 1);
+          const contact = THREE.MathUtils.clamp((elapsed - 920) / 1960, 0, 1);
+          const retreat = THREE.MathUtils.clamp((elapsed - 2880) / 720, 0, 1);
+          const smooth = (x: number) => x * x * (3 - 2 * x);
+
+          const shoulder = new THREE.Vector3();
+          bones.rShoulder?.getWorldPosition(shoulder);
+          const reachTarget = shoulder.clone().add(new THREE.Vector3(0.10, -0.18, 0.54));
+          const contactTarget = shoulder.clone().add(new THREE.Vector3(0.22, -0.20, 0.86));
+          const retreatTarget = shoulder.clone().add(new THREE.Vector3(0.02, -0.04, 0.18));
+
+          let target = reachTarget;
+          if (elapsed < 920) {
+            target = reachTarget.clone().lerp(contactTarget, smooth(reach));
+          } else if (elapsed < 2880) {
+            const pump = Math.sin(contact * Math.PI * 2.2) * 0.035 * (1 - contact * 0.25);
+            target = contactTarget.clone().add(new THREE.Vector3(0, pump, 0));
+          } else {
+            target = contactTarget.clone().lerp(retreatTarget, smooth(retreat));
+          }
+
+          solveTwoBoneIK(
+            bones.rArm,
+            bones.rFore,
+            bones.rHand,
+            target,
+            shoulder.clone().add(new THREE.Vector3(0, 0, -1)),
+            14,
             dt,
           );
-          addRotation(bones.rHand, 'x', Math.sin(shakePhase) * 0.08, 12, dt);
-          addRotation(bones.rHand, 'y', Math.sin(shakePhase + Math.PI / 2) * 0.05, 12, dt);
+
+          // Wrist stays neutral; fingers close around the imagined handshake.
+          addRotation(bones.rHand, 'x', 0.02 + Math.sin(elapsed * 0.006) * 0.015, 14, dt);
+          fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.22, 12, dt));
         }
 
         /*
@@ -1980,47 +2154,87 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          */
         else if (gesture === 'walk' || gesture === 'run') {
           const fast = gesture === 'run';
-          const phase = time * (fast ? 8.5 : 5.2);
+          const phase = time * (fast ? 7.2 : 4.8);
           const leftSwing = Math.sin(phase);
           const rightSwing = Math.sin(phase + Math.PI);
-          const leftKnee = Math.max(0, Math.sin(phase + Math.PI / 2));
-          const rightKnee = Math.max(0, Math.sin(phase + Math.PI / 2 + Math.PI));
 
-          const stride = fast ? 0.34 : 0.24;
-          const knee = fast ? 0.70 : 0.46;
-          const swingL = leftSwing * stride;
-          const swingR = rightSwing * stride;
-          const kneeL = leftKnee * knee;
-          const kneeR = rightKnee * knee;
+          const leftFootRest = restWorldPositions.get(bones.lFoot!);
+          const rightFootRest = restWorldPositions.get(bones.rFoot!);
 
-          // Human gait: thigh swings forward/back; shank stays below the
-          // knee and folds backward during swing instead of lifting upward.
-          poseChain(
-            [
-              { bone: bones.lThigh, direction: new THREE.Vector3(0, -0.97, swingL) },
-              { bone: bones.rThigh, direction: new THREE.Vector3(0, -0.97, swingR) },
-              { bone: bones.lCalf, direction: new THREE.Vector3(0, -0.98, -kneeL) },
-              { bone: bones.rCalf, direction: new THREE.Vector3(0, -0.98, -kneeR) },
-            ],
-            11,
-            dt,
-          );
+          const gaitTarget = (
+            foot: THREE.Vector3 | undefined,
+            swing: number,
+            phaseOffset: number,
+          ) => {
+            const base = foot?.clone();
+            if (!base) return null;
+            const swingDistance = fast ? 0.26 : 0.18;
+            const clearance = fast ? 0.10 : 0.055;
+            const lift = Math.max(0, Math.sin(phaseOffset)) * clearance;
+            return base.add(new THREE.Vector3(0, lift, swing * swingDistance));
+          };
 
-          // Opposite arm swing and small pelvic/torso stabilization.
-          poseChain(
-            [
-              { bone: bones.lArm, direction: new THREE.Vector3(-0.10 * rightSwing, -0.02, 0.98) },
-              { bone: bones.rArm, direction: new THREE.Vector3(-0.10 * leftSwing, -0.02, 0.98) },
-            ],
-            8,
-            dt,
-          );
-          addRotation(bones.lFore, 'x', -leftSwing * (fast ? 0.10 : 0.06), 8, dt);
-          addRotation(bones.rFore, 'x', -rightSwing * (fast ? 0.10 : 0.06), 8, dt);
+          const leftTarget = gaitTarget(leftFootRest, leftSwing, phase + Math.PI / 2);
+          const rightTarget = gaitTarget(rightFootRest, rightSwing, phase + Math.PI / 2 + Math.PI);
+
+          // The knee pole is deliberately behind the body (-Z). The solver
+          // makes the knee bend backward while the ankle follows the foot
+          // target; no independent calf direction can pull the leg upward.
+          if (leftTarget) {
+            const hip = new THREE.Vector3();
+            bones.lThigh?.getWorldPosition(hip);
+            solveTwoBoneIK(
+              bones.lThigh,
+              bones.lCalf,
+              bones.lFoot,
+              leftTarget,
+              hip.clone().add(new THREE.Vector3(0, 0, -1)),
+              12,
+              dt,
+            );
+          }
+          if (rightTarget) {
+            const hip = new THREE.Vector3();
+            bones.rThigh?.getWorldPosition(hip);
+            solveTwoBoneIK(
+              bones.rThigh,
+              bones.rCalf,
+              bones.rFoot,
+              rightTarget,
+              hip.clone().add(new THREE.Vector3(0, 0, -1)),
+              12,
+              dt,
+            );
+          }
+
+          // Small, anatomically plausible pelvic and arm counter-motion.
           addRotation(bones.hips, 'y', Math.sin(phase) * 0.035, 7, dt);
           addRotation(bones.hips, 'z', Math.sin(phase + Math.PI / 2) * 0.025, 7, dt);
-          addRotation(bones.spine, 'z', Math.sin(phase) * 0.015, 7, dt);
-          addRotation(bones.spine1, 'z', Math.sin(phase) * 0.010, 7, dt);
+          addRotation(bones.spine, 'z', Math.sin(phase) * 0.012, 7, dt);
+          addRotation(bones.spine1, 'z', Math.sin(phase) * 0.008, 7, dt);
+
+          const leftShoulder = new THREE.Vector3();
+          const rightShoulder = new THREE.Vector3();
+          bones.lShoulder?.getWorldPosition(leftShoulder);
+          bones.rShoulder?.getWorldPosition(rightShoulder);
+          solveTwoBoneIK(
+            bones.lArm,
+            bones.lFore,
+            bones.lHand,
+            leftShoulder.clone().add(new THREE.Vector3(-0.03, -0.12, -0.08 * rightSwing)),
+            leftShoulder.clone().add(new THREE.Vector3(0, 0, 1)),
+            7,
+            dt,
+          );
+          solveTwoBoneIK(
+            bones.rArm,
+            bones.rFore,
+            bones.rHand,
+            rightShoulder.clone().add(new THREE.Vector3(0.03, -0.12, -0.08 * leftSwing)),
+            rightShoulder.clone().add(new THREE.Vector3(0, 0, 1)),
+            7,
+            dt,
+          );
         }
 
         else if (gesture === 'bend') {
@@ -2095,33 +2309,75 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         /*
          * FULL BODY
          */
-        else if (gesture === 'sit') {
-          // Sit posture: thighs travel forward from the hips while shins
-          // travel backward from the knees toward the ankles.
+        else if (gesture === 'sit' || gesture === 'sit-chair') {
+          const elapsed = now - gestureStarted;
+          const chairMode = gesture === 'sit-chair';
+          const t = THREE.MathUtils.clamp(elapsed / (chairMode ? 3600 : 2600), 0, 1);
+          const smooth = (x: number) => x * x * (3 - 2 * x);
+
+          if (chairMode && furniture) {
+            const chair = furniture.getObjectByName('AURA_CHAIR');
+            if (chair) {
+              const chairWorld = new THREE.Vector3();
+              chair.getWorldPosition(chairWorld);
+              const approach = smooth(THREE.MathUtils.clamp(elapsed / 1400, 0, 1));
+              const localTarget = new THREE.Vector3(chairWorld.x + 0.36, root.position.y, chairWorld.z + 0.18);
+              root.position.x = THREE.MathUtils.lerp(root.position.x, localTarget.x, 1 - Math.exp(-5 * dt) * (1 - approach));
+              root.position.z = THREE.MathUtils.lerp(root.position.z, localTarget.z, 1 - Math.exp(-5 * dt) * (1 - approach));
+            }
+          }
+
+          // Stand -> controlled descent: hip/knee flexion first, then the
+          // trunk follows. This keeps the knees behind the thighs rather
+          // than pushing the shins forward.
+          const sitAmount = smooth(t);
+          const hip = new THREE.Vector3();
+          bones.lThigh?.getWorldPosition(hip);
+          const seatY = (avatarFrame?.height ?? 1) * 0.43;
+          const footY = restWorldPositions.get(bones.lFoot!)?.y ?? 0;
+          const rootDrop = THREE.MathUtils.clamp((seatY - footY) * 0.16, 0.06, (avatarFrame?.height ?? 1) * 0.10);
+          root.position.y = -rootDrop * sitAmount;
+
+          const leftFoot = restWorldPositions.get(bones.lFoot!);
+          const rightFoot = restWorldPositions.get(bones.rFoot!);
+          if (leftFoot && rightFoot) {
+            const kneeBack = new THREE.Vector3(0, 0, -0.28 * (avatarFrame?.height ?? 1));
+            const leftTarget = leftFoot.clone().add(new THREE.Vector3(0, 0.08, 0.12 * (1 - sitAmount)));
+            const rightTarget = rightFoot.clone().add(new THREE.Vector3(0, 0.08, 0.12 * (1 - sitAmount)));
+
+            const leftHip = new THREE.Vector3();
+            const rightHip = new THREE.Vector3();
+            bones.lThigh?.getWorldPosition(leftHip);
+            bones.rThigh?.getWorldPosition(rightHip);
+            solveTwoBoneIK(bones.lThigh, bones.lCalf, bones.lFoot, leftTarget, leftHip.clone().add(kneeBack), 8, dt);
+            solveTwoBoneIK(bones.rThigh, bones.rCalf, bones.rFoot, rightTarget, rightHip.clone().add(kneeBack), 8, dt);
+          }
+
+          // Human sitting is a coupled hip-knee-trunk action, not just a
+          // rotated spine. The trunk leans forward during descent and settles
+          // near upright once seated; the pelvis is allowed a small tilt.
+          const lean = chairMode
+            ? THREE.MathUtils.lerp(0.18, 0.035, sitAmount)
+            : THREE.MathUtils.lerp(0.22, 0.04, sitAmount);
+
           poseChain(
             [
-              { bone: bones.lThigh, direction: new THREE.Vector3(0, -0.56, 0.83) },
-              { bone: bones.rThigh, direction: new THREE.Vector3(0, -0.56, 0.83) },
-              { bone: bones.lCalf, direction: new THREE.Vector3(0, -0.76, -0.65) },
-              { bone: bones.rCalf, direction: new THREE.Vector3(0, -0.76, -0.65) },
+              { bone: bones.spine, direction: new THREE.Vector3(0, Math.cos(lean), Math.sin(lean)) },
+              { bone: bones.spine1, direction: new THREE.Vector3(0, Math.cos(lean * 0.82), Math.sin(lean * 0.82)) },
+              { bone: bones.spine2, direction: new THREE.Vector3(0, Math.cos(lean * 0.68), Math.sin(lean * 0.68)) },
             ],
-            5,
+            6,
             dt,
           );
-          poseChain(
-            [
-              { bone: bones.spine, direction: new THREE.Vector3(0, 0.97, -0.12) },
-              { bone: bones.spine1, direction: new THREE.Vector3(0, 0.95, -0.16) },
-              { bone: bones.spine2, direction: new THREE.Vector3(0, 0.94, -0.18) },
-            ],
-            5,
-            dt,
-          );
+          addRotation(bones.hips, 'x', -0.08 * sitAmount, 6, dt);
+          restoreBone(bones.lFoot, 8, dt);
+          restoreBone(bones.rFoot, 8, dt);
         }
 
         else if (gesture === 'stand') {
           restoreLowerBody(bones, 4.5, dt);
           restoreBone(bones.spine, 4, dt);
+          root.position.y = THREE.MathUtils.damp(root.position.y, 0, 5, dt);
         }
 
         else if (
@@ -2208,7 +2464,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           fingers: 1400,
           'chin-touch': 1800,
           clothes: 1800,
-          sit: 3200,
+          sit: 2600,
+          'sit-chair': 3600,
           stand: 2600,
           walk: 3000,
           run: 3000,
@@ -2216,6 +2473,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           bend: 2200,
           crouch: 2200,
           'back-bend': 2200,
+          'sit-chair': 3600,
         };
 
         const duration = durations[gesture] ?? 0;
@@ -2253,6 +2511,18 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       if (mixer && model) {
         mixer.stopAllAction();
         mixer.uncacheRoot(model);
+      }
+
+      if (furniture) {
+        furniture.traverse((object) => {
+          if (object instanceof THREE.Mesh) {
+            object.geometry.dispose();
+            const materials = Array.isArray(object.material) ? object.material : [object.material];
+            materials.forEach((material) => material.dispose());
+          }
+        });
+        scene.remove(furniture);
+        furniture = null;
       }
 
       if (model) {
