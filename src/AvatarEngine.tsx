@@ -665,10 +665,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       };
 
       const patterns = nativePatterns[gesture] ?? [];
-      const loopGesture = gesture === 'idle' || gesture === 'walk' || gesture === 'run';
-
-      if (patterns.length) {
-        nativeMotion = playNative(patterns, loopGesture);
+      // Only idle is allowed to use an authored FBX clip. Active movement is
+      // owned by the rig-aware controller so the shoulder/elbow/wrist/fingers,
+      // hips/knees/ankles and neck are never locked by a competing clip.
+      if (gesture === 'idle' && patterns.length) {
+        nativeMotion = playNative(patterns, true);
+      } else {
+        nativeMotion = false;
       }
 
       setStatus(
@@ -941,6 +944,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             lFoot: bones.lFoot?.name,
             rFoot: bones.rFoot?.name,
             jaw: bones.jaw?.name,
+            neck1: bones.neck1?.name,
+            neck2: bones.neck2?.name,
             lEye: bones.lEye?.name,
             rEye: bones.rEye?.name,
           },
@@ -1093,11 +1098,28 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
       setMorph(mouthTargets, mouth, 0.72);
 
-      if (expression === 'smile') {
-        const smileTargets = expressionMorphs.filter((item) =>
-          /smile|happy|mouthsmile|lipcorner/.test(norm(item.name)),
-        );
-        setMorph(smileTargets, 0.22, 0.22);
+      const faceExpression = expression;
+      if (faceExpression !== 'neutral' && expressionMorphs.length) {
+        const expressionTargets = expressionMorphs.filter((item) => {
+          const n = norm(item.name);
+          if (faceExpression === 'smile' || faceExpression === 'happy' || faceExpression === 'warm') {
+            return /smile|happy|mouthsmile|lipcorner|cheek/.test(n);
+          }
+          if (faceExpression === 'sad' || faceExpression === 'concerned') {
+            return /sad|frown|brow|mouthdown|lipcorner/.test(n);
+          }
+          if (faceExpression === 'surprised' || faceExpression === 'excited') {
+            return /surprise|wide|brow|open/.test(n);
+          }
+          if (faceExpression === 'angry' || faceExpression === 'firm') {
+            return /angry|frown|brow|tension/.test(n);
+          }
+          if (faceExpression === 'thinking' || faceExpression === 'confused') {
+            return /brow|confus|think|frown/.test(n);
+          }
+          return false;
+        });
+        setMorph(expressionTargets, faceExpression === 'surprised' || faceExpression === 'excited' ? 0.42 : 0.34, 0.24);
       }
 
       // Fallback jaw articulation for FBX rigs without usable lip morphs.
