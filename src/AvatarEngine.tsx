@@ -527,38 +527,21 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     };
 
     const applyRestArms = (map: BoneMap, h: number, dt: number, speed = 10) => {
-      const side = Math.max(h * 0.018, 0.015);
-      const drop = h * 0.37;
-      const leftShoulder = new THREE.Vector3();
-      const rightShoulder = new THREE.Vector3();
-      map.lShoulder?.getWorldPosition(leftShoulder);
-      map.rShoulder?.getWorldPosition(rightShoulder);
-
-      // Standing/idle: straight relaxed arms, close to the torso.
-      // No deliberate elbow bend and never a T-pose.
-      // Build every rest target in the avatar's own frame. World-space
-      // X/Z offsets make the arms appear to fold backwards whenever the
-      // character turns.
-      const forward = getAvatarForward();
-      const right = getAvatarRight();
+      // True anatomical rest pose: the upper arm and forearm are each aimed
+      // straight down from their current joint. Do not use a hand target that
+      // is shorter than the combined arm length; a shortened IK target forces
+      // the elbow to bend. This also remains correct when the avatar rotates.
       const down = new THREE.Vector3(0, -1, 0);
-      const leftHandTarget = leftShoulder.clone()
-        .add(right.clone().multiplyScalar(-side))
-        .add(down.clone().multiplyScalar(drop));
-      const rightHandTarget = rightShoulder.clone()
-        .add(right.clone().multiplyScalar(side))
-        .add(down.clone().multiplyScalar(drop));
-      const leftPole = leftShoulder.clone()
-        .add(right.clone().multiplyScalar(-side * 0.15))
-        .add(down.clone().multiplyScalar(h * 0.20))
-        .add(forward.clone().multiplyScalar(-0.12));
-      const rightPole = rightShoulder.clone()
-        .add(right.clone().multiplyScalar(side * 0.15))
-        .add(down.clone().multiplyScalar(h * 0.20))
-        .add(forward.clone().multiplyScalar(-0.12));
 
-      solveTwoBoneIK(map.lArm, map.lFore, map.lHand, leftHandTarget, leftPole, speed, dt);
-      solveTwoBoneIK(map.rArm, map.rFore, map.rHand, rightHandTarget, rightPole, speed, dt);
+      poseBoneToward(map.lArm, down, speed, dt);
+      poseBoneToward(map.lFore, down, speed, dt);
+      poseBoneToward(map.rArm, down, speed, dt);
+      poseBoneToward(map.rFore, down, speed, dt);
+
+      // Wrist stays in the FBX's neutral/rest orientation. Fingers remain
+      // relaxed without introducing an elbow bend or pulling the hands back.
+      neutralizeHand(map.lHand, speed, dt);
+      neutralizeHand(map.rHand, speed, dt);
       fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
       fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
     };
