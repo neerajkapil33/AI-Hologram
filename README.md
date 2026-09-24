@@ -1,49 +1,63 @@
 # NEERAJ AI — Human Hologram
 
-TypeGPU/WebGPU + React + Three.js foundation for a high-fidelity Neeraj Kapil AI digital human.
+AURA / NEERAJ AI is a React + Vite + Three.js browser application with a single production full-body FBX avatar.
 
-## Product modes
+## Production avatar architecture
 
-### Career Coach Profile
-A polished professional identity screen using the approved Neeraj reference image and the supplied blue/neon visual direction.
+The production 3D avatar is:
 
-### AI Career Companion / Video Call
-The production path is wired for a real-time high-fidelity digital-human call using Tavus CVI when a provider account is available. The UI opens the returned conversation inside the Neeraj hologram stage.
+- **Asset:** `public/avatar/model.fbx`
+- **Loader:** Three.js `FBXLoader`
+- **Runtime controller:** `src/AvatarEngine.tsx`
+- **Backend performance layer:** `backend/performance.py`
+- **Conversation backend:** `backend/main.py`
+- **Voice adapter:** `backend/tts.py`
+- **Optional voice conversion:** `backend/rvc.py`
+- **Optional live video mode:** Tavus CVI through `backend/tavus.py`
 
-The local pipeline remains available as a development fallback:
+The browser owns the FBX presentation: facial morphs, eyes, lip-sync, gestures, body motion and the render loop. The backend sends semantic performance metadata and audio; it does not render or replace the FBX avatar.
 
-`voice/text -> STT -> Neeraj persona -> LLM -> cloned/synthesized Neeraj voice -> lip/face animation -> avatar/video presentation`
+Three.js officially supports FBX loading and FBX animation clips through `FBXLoader` and its animation system. 
 
-## Free real-human avatar bridge
+## Runtime flow
 
-The repository now includes `public/neeraj-ai-avatar-demo.html` as a no-signup/manual bridge for a generated Neeraj talking-head clip.
+```
+User text / microphone
+        ↓
+backend/main.py
+        ↓
+Brain + PerformanceDirector
+        ↓
+TTS audio + performance metadata
+        ↓
+React / useHologramBrain
+        ↓
+src/AvatarEngine.tsx
+        ↓
+public/avatar/model.fbx
+```
 
-## Implemented foundation
+## Optional modes
 
-- TypeGPU/WebGPU holographic background
-- Three.js full-body GLB loader at `public/avatar/avatar.glb`
-- Morph-target / viseme hook
-- Blinking, expressions and gesture command interface
-- Profile vs live AI Career Companion UI
-- Embedded real-time Tavus video-call surface
-- WebSocket brain pipeline
-- Responsive neon-blue career-coach screen
-- Natural breathing and speaking-weight motion
-- Audio-reactive wave track
-- Runtime voice/audio bridge scripts packaged for Vite
+### Tavus live call
+Tavus is an optional high-fidelity video-call mode. It is not the 3D FBX renderer. When configured, the UI can open the returned Tavus conversation inside the live-call stage.
 
-## Persona
+### RVC
+RVC is an optional external/local post-processing service consumed by `backend/rvc.py`. No RVC server implementation is included in this repository.
 
-The AI persona is warm, happy-go-lucky, empathetic, strategic, globally aware and professionally polished. It adapts its communication style to career coaching, interviews, LinkedIn, emotional conversations, relationships, casual chat and technical/global topics.
+## Development
 
-## High-fidelity replica
+Install with npm:
 
-The production integration is designed around an authorized personal Neeraj digital-human representation trained from suitable real footage. A production provider can supply natural facial movement, turn-taking, multilingual support and real-time video. Self-hosted face/lip animation can provide generated speech performance when suitable compute is available.
+```bash
+npm install
+npm run dev
+npm run build
+npm run check
+```
 
-## Identity note
+Windows backend startup is provided by `start_windows.ps1`.
 
-The goal is high-fidelity likeness, not a misleading claim of a mathematically exact copy. The supplied identity/voice references are intended for this project.
+## Repository rule
 
-## Sandbox build trigger
-
-Packaging validation trigger: runtime scripts under `public/` must be present in the Vite production artifact.
+There is one production avatar runtime and one production FBX asset path. Legacy GLB/glTF, MuseTalk and duplicate avatar-controller paths should not be reintroduced into the production pipeline.
