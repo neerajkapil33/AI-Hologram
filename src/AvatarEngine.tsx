@@ -668,6 +668,39 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       bone.quaternion.slerp(targetLocal, THREE.MathUtils.clamp(alpha, 0, 1));
     };
 
+    const getAvatarForward = () => {
+      const forward = new THREE.Vector3(0, 0, 1)
+        .applyQuaternion(root.quaternion)
+        .setY(0);
+      return forward.lengthSq() > 0.0001
+        ? forward.normalize()
+        : new THREE.Vector3(0, 0, 1);
+    };
+
+    const getAvatarRight = () => {
+      const right = new THREE.Vector3(1, 0, 0)
+        .applyQuaternion(root.quaternion)
+        .setY(0);
+      return right.lengthSq() > 0.0001
+        ? right.normalize()
+        : new THREE.Vector3(1, 0, 0);
+    };
+
+    const isArmChain = (upper: THREE.Bone) =>
+      upper === bones?.lArm || upper === bones?.rArm;
+
+    const isLegChain = (upper: THREE.Bone) =>
+      upper === bones?.lThigh || upper === bones?.rThigh;
+
+    const neutralizeHand = (hand: THREE.Bone | null, speed: number, dt: number) => {
+      if (!hand) return;
+      const base = originalRotation.get(hand);
+      if (!base) return;
+      hand.rotation.x = THREE.MathUtils.damp(hand.rotation.x, base.x, speed, dt);
+      hand.rotation.y = THREE.MathUtils.damp(hand.rotation.y, base.y, speed, dt);
+      hand.rotation.z = THREE.MathUtils.damp(hand.rotation.z, base.z, speed, dt);
+    };
+
     const solveTwoBoneIK = (
       upper: THREE.Bone | null,
       lower: THREE.Bone | null,
@@ -700,12 +733,35 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const distance = THREE.MathUtils.clamp(rawDistance, minReach, maxReach);
       const target = rootPos.clone().add(toTarget.normalize().multiplyScalar(distance));
 
-      // Human legs/arms are two-link chains. The pole vector chooses the
-      // anatomical bend direction instead of independently aiming thigh/calf.
       const axis = target.clone().sub(rootPos).normalize();
       const pole = poleWorld.clone().sub(rootPos);
+
+      // Anatomical joint limits:
+      // - arms: elbows stay behind the upper arm/torso plane; they never
+      //   flip through the front or make the forearm fold backward.
+      // - legs: knees stay in front of the hip/thigh plane; the calf folds
+      //   backward/downward rather than bending sideways or forward.
+      const forward = getAvatarForward();
+      const right = getAvatarRight();
+      if (isArmChain(upper)) {
+        const sideSign = upper === bones?.lArm ? -1 : 1;
+        pole.copy(forward).multiplyScalar(-0.72)
+          .add(new THREE.Vector3(0, -0.48, 0))
+          .add(right.multiplyScalar(sideSign * 0.22));
+      } else if (isLegChain(upper)) {
+        const sideSign = upper === bones?.lThigh ? -1 : 1;
+        pole.copy(forward).multiplyScalar(1.0)
+          .add(new THREE.Vector3(0, -0.08, 0))
+          .add(right.multiplyScalar(sideSign * 0.08));
+      }
+
+      // Project the anatomical pole onto the IK bend plane. This preserves
+      // the requested target while preventing a joint from flipping sideways.
       pole.sub(axis.clone().multiplyScalar(pole.dot(axis)));
-      if (pole.lengthSq() < 1e-6) pole.set(0, 0, -1);
+      if (pole.lengthSq() < 1e-6) {
+        pole.copy(isLegChain(upper) ? forward : forward.clone().multiplyScalar(-1));
+        pole.sub(axis.clone().multiplyScalar(pole.dot(axis)));
+      }
       pole.normalize();
 
       const x = THREE.MathUtils.clamp(
@@ -715,19 +771,25 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         upperLength,
       );
       const h = Math.sqrt(Math.max(0, upperLength * upperLength - x * x));
-      const kneeTarget = rootPos
+      const jointTarget = rootPos
         .clone()
         .add(axis.clone().multiplyScalar(x))
         .add(pole.clone().multiplyScalar(h));
 
-      poseBoneToward(upper, kneeTarget.clone().sub(rootPos).normalize(), speed, dt);
+      poseBoneToward(upper, jointTarget.clone().sub(rootPos).normalize(), speed, dt);
 
-      // Re-read the knee after the upper leg rotates; this prevents the
-      // lower leg from being aimed at an impossible independent direction.
       model?.updateMatrixWorld(true);
       lower.getWorldPosition(midPos);
       const lowerTargetDirection = target.clone().sub(midPos).normalize();
       poseBoneToward(lower, lowerTargetDirection, speed, dt);
+
+      // The wrist/hand is a hinge-free orientation follower, not a second
+      // steering joint. Keep it at the FBX rest orientation so arm movement
+      // does not twist the hand behind the wrist. Fingers provide the visible
+      // greeting/holding/writing articulation.
+      if (end === bones?.lHand || end === bones?.rHand) {
+        neutralizeHand(end, 18, dt);
+      }
     };
 
     const poseChain = (
@@ -2068,22 +2130,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          // Wrist rotation is intentionally separate: waving needs a
-          // visible side-to-side hand angle after the arm is raised.
-          addRotation(
-            bones.rHand,
-            'y',
-            Math.sin(wavePhase) * 0.34 * adaptiveProfile.hand,
-            14,
-            dt,
-          );
-          addRotation(
-            bones.rHand,
-            'z',
-            Math.sin(wavePhase + Math.PI / 2) * 0.18 * adaptiveProfile.hand,
-            14,
-            dt,
-          );
+          // Keep the wrist neutral. The wave is produced by the arm/forearm
+          // and relaxed finger motion; the hand never twists behind the wrist.
+          neutralizeHand(bones.rHand, 18, dt);
           fingerBones.right.forEach((finger, index) =>
             addRotation(finger, 'x', 0.08 + Math.sin(time * 7 + index * 0.22) * 0.05, 12, dt),
           );
@@ -2117,7 +2166,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             const isIndex = /index/.test(n);
             addRotation(finger, 'x', isIndex ? 0.0 : 0.20, 12, dt);
           });
-          addRotation(bones.rHand, 'x', -0.03, 10, dt);
+          neutralizeHand(bones.rHand, 18, dt);
         }
 
         /*
@@ -2158,15 +2207,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          addRotation(
-            bones.lHand,
-            'z',
-            -0.12,
-            12,
-            dt,
-          );
-
-          addRotation(bones.rHand, 'z', 0.12 * adaptiveProfile.hand, 12, dt);
+          neutralizeHand(bones.lHand, 18, dt);
+          neutralizeHand(bones.rHand, 18, dt);
           fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.16, 10, dt));
           fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.16, 10, dt));
         }
@@ -2211,7 +2253,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
 
           // Wrist stays neutral; fingers close around the imagined handshake.
-          addRotation(bones.rHand, 'x', 0.02 + Math.sin(elapsed * 0.006) * 0.015, 14, dt);
+          neutralizeHand(bones.rHand, 18, dt);
           fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.22, 12, dt));
         }
 
@@ -2296,14 +2338,18 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const target = mid.add(new THREE.Vector3(0, (avatarFrame?.height ?? 1) * (palms ? 0.10 : 0.18), 0.34));
           solveTwoBoneIK(bones.lArm, bones.lFore, bones.lHand, target.clone().add(new THREE.Vector3(-0.07, 0, 0)), shoulder.clone().add(new THREE.Vector3(0, 0, -0.6)), 10, dt);
           solveTwoBoneIK(bones.rArm, bones.rFore, bones.rHand, target.clone().add(new THREE.Vector3(0.07, 0, 0)), shoulderR.clone().add(new THREE.Vector3(0, 0, -0.6)), 10, dt);
+          // Greeting is a front-facing social pose: head stays toward the
+          // visitor and the wrists remain neutral. Hand/finger motion must not
+          // twist the palm behind the forearm.
+          neutralizeHand(bones.lHand, 18, dt);
+          neutralizeHand(bones.rHand, 18, dt);
           if (palms) {
-            addRotation(bones.lHand, 'z', -0.12, 10, dt);
-            addRotation(bones.rHand, 'z', 0.12, 10, dt);
             fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.08, 10, dt));
             fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.08, 10, dt));
           } else {
-            addRotation(bones.rHand, 'y', Math.sin(time * 8) * 0.22, 12, dt);
-            addRotation(bones.rFore, 'z', -0.12, 10, dt);
+            fingerBones.right.forEach((finger, index) =>
+              addRotation(finger, 'x', 0.08 + Math.sin(time * 7 + index * 0.22) * 0.04, 12, dt),
+            );
           }
           addRotation(bones.head, 'x', palms ? 0.02 : -0.03, 7, dt);
         }
@@ -2556,8 +2602,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             rightBook, rightShoulder.clone().add(new THREE.Vector3(0, 0, -1)), 9, dt,
           );
 
-          addRotation(bones.lHand, 'z', -0.08, 8, dt);
-          addRotation(bones.rHand, 'z', 0.08, 8, dt);
+          neutralizeHand(bones.lHand, 18, dt);
+          neutralizeHand(bones.rHand, 18, dt);
           addRotation(bones.spine, 'x', 0.055, 7, dt);
           addRotation(bones.spine1, 'x', 0.045, 7, dt);
           addRotation(bones.spine2, 'x', 0.030, 7, dt);
@@ -2720,7 +2766,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               bones.lCalf,
               bones.lFoot,
               leftTarget,
-              hip.clone().add(gaitForward.clone().multiplyScalar(-1)),
+              hip.clone().add(gaitForward.clone().multiplyScalar(1)),
               12,
               dt,
             );
@@ -2733,7 +2779,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               bones.rCalf,
               bones.rFoot,
               rightTarget,
-              hip.clone().add(new THREE.Vector3(0, 0, -1)),
+              hip.clone().add(gaitForward.clone().multiplyScalar(1)),
               12,
               dt,
             );
@@ -2801,8 +2847,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
           // Keep wrists neutral and fingers naturally relaxed; no finger
           // controller is allowed to desynchronise the two gait cycles.
-          addRotation(bones.lHand, 'x', 0.02, 8, dt);
-          addRotation(bones.rHand, 'x', 0.02, 8, dt);
+          neutralizeHand(bones.lHand, 18, dt);
+          neutralizeHand(bones.rHand, 18, dt);
           fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.10, 8, dt));
           fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.10, 8, dt));
         }
@@ -2940,13 +2986,28 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           // than pushing the shins forward.
           const sitAmount = smooth(t);
           const h = avatarFrame?.height ?? 1;
-          const seatY = h * 0.45;
+          // Seat height is derived from the actual chair top when a chair
+          // exists. The pelvis/hip is lowered onto that surface, rather than
+          // stopping at an arbitrary percentage of avatar height.
+          const chairForSeat = chairMode
+            ? furniture?.getObjectByName('AURA_CHAIR')
+            : null;
+          const chairWorldForSeat = new THREE.Vector3();
+          chairForSeat?.getWorldPosition(chairWorldForSeat);
+          const seatTopY = chairForSeat
+            ? chairWorldForSeat.y + h * 0.4775
+            : h * 0.45;
           const restHipY = restWorldPositions.get(bones.hips!)?.y ?? h * 0.52;
-          const seatRootY = seatY - restHipY;
+          const seatRootY = seatTopY - restHipY;
 
-          // Seat the pelvis at the seat height instead of using an arbitrary
-          // vertical drop. This gives a repeatable human sitting geometry.
-          root.position.y = THREE.MathUtils.damp(root.position.y, seatRootY * sitAmount, 7, dt);
+          // Hip lands on the seat surface. The tiny pelvis clearance prevents
+          // visible clipping while keeping the butt/hip supported by the seat.
+          root.position.y = THREE.MathUtils.damp(
+            root.position.y,
+            seatRootY + h * 0.025,
+            7,
+            dt,
+          );
 
           const leftFoot = restWorldPositions.get(bones.lFoot!);
           const rightFoot = restWorldPositions.get(bones.rFoot!);
@@ -2964,10 +3025,16 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             const restRightKnee = restWorldPositions.get(bones.rCalf!) ?? restRightHip;
             const thighLengthL = Math.max(restLeftHip.distanceTo(restLeftKnee), h * 0.12);
             const thighLengthR = Math.max(restRightHip.distanceTo(restRightKnee), h * 0.12);
-            const forward = locomotionVector.lengthSq() > 0.01 ? locomotionVector.clone().normalize() : new THREE.Vector3(0, 0, 1);
-            const leftKnee = leftHip.clone().add(forward.clone().multiplyScalar(thighLengthL * 0.92));
-            const rightKnee = rightHip.clone().add(forward.clone().multiplyScalar(thighLengthR * 0.92));
+            const forward = getAvatarForward();
+            const leftKnee = leftHip.clone().add(
+              forward.clone().multiplyScalar(thighLengthL * 0.92),
+            );
+            const rightKnee = rightHip.clone().add(
+              forward.clone().multiplyScalar(thighLengthR * 0.92),
+            );
 
+            // Thighs are horizontal on the seat. The IK solver's leg constraint
+            // keeps the knee in the anatomical forward plane.
             poseBoneToward(bones.lThigh, leftKnee.clone().sub(leftHip).normalize(), 8, dt);
             poseBoneToward(bones.rThigh, rightKnee.clone().sub(rightHip).normalize(), 8, dt);
 
@@ -2977,8 +3044,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             bones.lCalf.getWorldPosition(kneeL);
             bones.rCalf.getWorldPosition(kneeR);
 
-            const leftAnkleTarget = leftFoot.clone();
-            const rightAnkleTarget = rightFoot.clone();
+            // Lower legs drop to the floor vertically. Do not aim the shin
+            // sideways or forward; the ankle target stays directly below the
+            // knee's floor footprint.
+            const leftAnkleTarget = new THREE.Vector3(kneeL.x, leftFoot.y, kneeL.z);
+            const rightAnkleTarget = new THREE.Vector3(kneeR.x, rightFoot.y, kneeR.z);
             poseBoneToward(bones.lCalf, leftAnkleTarget.clone().sub(kneeL).normalize(), 10, dt);
             poseBoneToward(bones.rCalf, rightAnkleTarget.clone().sub(kneeR).normalize(), 10, dt);
             restoreBone(bones.lFoot, 10, dt);
