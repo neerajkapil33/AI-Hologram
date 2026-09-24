@@ -261,6 +261,18 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let targetMouth = 0;
     let mouth = 0;
 
+    let eyeTargetX = 0;
+    let eyeTargetY = 0;
+    let eyeX = 0;
+    let eyeY = 0;
+    let nextEyeShift = performance.now() + 700;
+
+    let avatarFrame: {
+      height: number;
+      width: number;
+      depth: number;
+    } | null = null;
+
     let targetRotation = 0;
     let rotationStep = 0;
     const glassesObjects: THREE.Object3D[] = [];
@@ -404,6 +416,30 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       ].forEach((bone) =>
         restoreBone(bone, speed, dt),
       );
+    };
+
+    const restoreAllBones = (
+      speed: number,
+      dt: number,
+    ) => {
+      originalRotation.forEach((_base, bone) => restoreBone(bone, speed, dt));
+    };
+
+    const frameAvatar = () => {
+      if (!avatarFrame) return;
+
+      const vFov = THREE.MathUtils.degToRad(camera.fov);
+      const aspect = Math.max(camera.aspect, 0.1);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+      const distanceFromHeight = (avatarFrame.height * 1.10) / (2 * Math.tan(vFov / 2));
+      const distanceFromWidth = (avatarFrame.width * 1.10) / (2 * Math.tan(hFov / 2));
+      const distance = Math.max(distanceFromHeight, distanceFromWidth, avatarFrame.depth * 1.35);
+
+      camera.position.set(0, avatarFrame.height * 0.50, distance);
+      camera.lookAt(0, avatarFrame.height * 0.50, 0);
+      camera.near = Math.max(0.01, avatarFrame.height / 1000);
+      camera.far = Math.max(100, avatarFrame.height * 10);
+      camera.updateProjectionMatrix();
     };
 
     const setMorph = (
@@ -598,15 +634,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       gestureStarted = performance.now();
       stopNativeMotion();
 
-      // Prefer animation clips authored for this exact rig. Procedural motion is
-      // only a fallback; this prevents guessed bone axes from fighting the FBX.
+      // Native-first: authored FBX clips own the fully rigged avatar whenever
+      // a matching action exists. Procedural motion is strictly the fallback.
       const nativePatterns: Record<string, RegExp[]> = {
         idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
         walk: [/walk/, /walking/, /locomotion/],
         run: [/run/, /running/, /sprint/, /jog/],
         jump: [/jump/, /jumping/, /leap/],
-        wave: [/wave/, /greet/, /salute/, /hello/],
-        handshake: [/^handshake$/, /^hand-shake$/, /handshake/],
+        wave: [/wave/, /waving/, /greet/, /salute/, /hello/],
+        handshake: [/handshake/, /hand-shake/, /shakehand/],
         point: [/point/, /indicate/],
         present: [/present/, /explain/, /show/, /openhand/],
         nod: [/nod/, /yes/, /agree/],
@@ -621,36 +657,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       };
 
       const patterns = nativePatterns[gesture] ?? [];
-      const exactNativeOnly =
-        gesture === 'wave' ||
-        gesture === 'point' ||
-        gesture === 'present' ||
-        gesture === 'handshake' ||
-        gesture === 'laugh';
-      const proceduralPriority = new Set(['wave','point','present','handshake','nod','shrug','laugh','smile','walk','run','jump','sit','stand','full-body']);
+      const loopGesture = gesture === 'idle' || gesture === 'walk' || gesture === 'run';
 
-      if (patterns.length && !exactNativeOnly && !proceduralPriority.has(gesture)) {
-        nativeMotion = playNative(
-          patterns,
-          gesture === 'idle' || gesture === 'walk',
-        );
+      if (patterns.length) {
+        nativeMotion = playNative(patterns, loopGesture);
       }
 
-      if (exactNativeOnly && model?.animations.some((clip) => {
-        const n = norm(clip.name);
-        return gesture === 'wave'
-          ? /^(wave|waving|greet|salute|hello)$/.test(n)
-          : gesture === 'handshake'
-            ? /^(handshake|handshake01|handshake02)$/.test(n)
-            : /^(laugh|laughing|laughter)$/.test(n);
-      })) {
-        nativeMotion = playNative(patterns, false);
-      }
-
-      // If a one-shot native clip exists, let the clip own the bones completely.
-      // Otherwise the controlled fallback pose below is used.
       setStatus(
-        `3D AVATAR • ${gesture.toUpperCase()} • ${nativeMotion ? 'NATIVE' : 'FALLBACK'}`,
+        `3D AVATAR • ${gesture.toUpperCase()} • ${nativeMotion ? 'NATIVE' : 'PROCEDURAL FALLBACK'}`,
       );
     };
 
@@ -762,6 +776,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           }
 
           if (object instanceof THREE.Bone) {
+            rememberBone(object);
             const n = norm(object.name);
             const isFinger = /finger|thumb|index|middle|ring|pinky|little|metacarp|proximal|distal/.test(n);
             if (isFinger && !/hand$|wrist|forearm|arm/.test(n)) {
@@ -872,43 +887,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
         loaded.updateMatrixWorld(true);
 
-        const padding = 1.16;
-        const vFov = THREE.MathUtils.degToRad(camera.fov);
-        const hFov =
-          2 * Math.atan(
-            Math.tan(vFov / 2) * camera.aspect,
-          );
-        const distanceFromHeight =
-          (size.y * padding) /
-          (2 * Math.tan(vFov / 2));
-        const distanceFromWidth =
-          (size.x * padding) /
-          (2 * Math.tan(hFov / 2));
-        const distance = Math.max(
-          distanceFromHeight,
-          distanceFromWidth,
-          size.z * 1.5,
-        );
-
-        camera.position.set(
-          0,
-          height * 0.50,
-          distance,
-        );
-
-        camera.lookAt(
-          0,
-          height * 0.50,
-          0,
-        );
-
-        camera.near =
-          Math.max(0.01, height / 1000);
-
-        camera.far =
-          Math.max(100, height * 10);
-
-        camera.updateProjectionMatrix();
+        avatarFrame = {
+          height,
+          width: Math.max(size.x, 0.1),
+          depth: Math.max(size.z, 0.1),
+        };
+        frameAvatar();
 
         nativeMotion = playNative(
           [
@@ -1000,26 +984,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     );
 
     const resize = () => {
-      const width = Math.max(
-        1,
-        mount.clientWidth,
-      );
+      const width = Math.max(1, mount.clientWidth);
+      const height = Math.max(1, mount.clientHeight);
 
-      const height = Math.max(
-        1,
-        mount.clientHeight,
-      );
-
-      renderer.setSize(
-        width,
-        height,
-        false,
-      );
-
-      camera.aspect =
-        width / height;
-
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      frameAvatar();
     };
 
     resize();
@@ -1108,11 +1079,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const openMouthMorphs = morphs.filter((item) =>
         /viseme|mouthopen|jawopen|phoneme|^aa$|^ah$|^ao$|^oh$|^uh$/i.test(norm(item.name)),
       );
-      setMorph(
-        openMouthMorphs.length ? openMouthMorphs : morphs,
-        mouth,
-        0.48,
-      );
+      setMorph(openMouthMorphs, mouth, 0.58);
 
       if (expression === 'smile') {
         const smileTargets = expressionMorphs.filter((item) =>
@@ -1140,18 +1107,24 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
        * not frozen whenever a gesture is active.
        */
       if (bones && !nativeMotion) {
-        const attention = speaking ? 1 : 0.55;
-        addRotation(bones.neck, 'y', Math.sin(time * 0.55) * 0.018 * attention, 4, dt);
-        addRotation(bones.neck, 'x', Math.sin(time * 0.72 + 0.7) * 0.012 * attention, 4, dt);
-        addRotation(bones.head, 'y', Math.sin(time * 0.78 + 1.1) * 0.035 * attention, 5, dt);
-        addRotation(bones.head, 'x', Math.sin(time * 0.62) * 0.018 * attention, 5, dt);
+        const attention = speaking ? 1 : 0.75;
+        if (now >= nextEyeShift) {
+          eyeTargetX = (Math.random() * 2 - 1) * 0.055;
+          eyeTargetY = (Math.random() * 2 - 1) * 0.032;
+          nextEyeShift = now + 650 + Math.random() * 950;
+        }
+        eyeX = THREE.MathUtils.damp(eyeX, eyeTargetX, 14, dt);
+        eyeY = THREE.MathUtils.damp(eyeY, eyeTargetY, 14, dt);
 
-        const gazeX = Math.sin(time * 0.42 + 0.8) * 0.025;
-        const gazeY = Math.sin(time * 0.36 + 1.5) * 0.014;
-        addRotation(bones.lEye, 'y', gazeX, 9, dt);
-        addRotation(bones.rEye, 'y', gazeX, 9, dt);
-        addRotation(bones.lEye, 'x', gazeY, 9, dt);
-        addRotation(bones.rEye, 'x', gazeY, 9, dt);
+        addRotation(bones.neck, 'y', Math.sin(time * 0.7) * 0.014 * attention, 5, dt);
+        addRotation(bones.neck, 'x', Math.sin(time * 0.85 + 0.7) * 0.010 * attention, 5, dt);
+        addRotation(bones.head, 'y', Math.sin(time * 0.9 + 1.1) * 0.028 * attention, 6, dt);
+        addRotation(bones.head, 'x', Math.sin(time * 0.72) * 0.014 * attention, 6, dt);
+
+        addRotation(bones.lEye, 'y', eyeX, 14, dt);
+        addRotation(bones.rEye, 'y', eyeX, 14, dt);
+        addRotation(bones.lEye, 'x', eyeY, 14, dt);
+        addRotation(bones.rEye, 'x', eyeY, 14, dt);
       }
 
       /*
@@ -1163,8 +1136,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * authored clips are preferred because arbitrary rigs do not share
          * the same local bone axes.
          */
-        restoreUpperBody(bones, 10, dt);
-        restoreLowerBody(bones, 10, dt);
+        restoreAllBones(10, dt);
         // All procedural gestures start from the captured rest pose each frame;
         // this prevents hand/elbow/leg rotations from accumulating or stacking.
 
@@ -1249,8 +1221,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.rFore, 'y', 0.72, 10, dt);
         }
         else if (gesture === 'fingers') {
-          fingerBones.left.forEach((finger, index) => addRotation(finger, 'x', 0.18 + Math.sin(time * 5 + index) * 0.08, 10, dt));
-          fingerBones.right.forEach((finger, index) => addRotation(finger, 'x', 0.18 + Math.sin(time * 5 + index) * 0.08, 10, dt));
+          const curl = (finger: THREE.Bone, index: number) => {
+            const segment = Number(norm(finger.name).match(/[1-4]$/)?.[0] ?? 1);
+            addRotation(finger, 'x', 0.10 + segment * 0.045 + Math.sin(time * 5 + index * 0.35) * 0.025, 12, dt);
+          };
+          fingerBones.left.forEach(curl);
+          fingerBones.right.forEach(curl);
         }
 
         /*
