@@ -585,10 +585,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
 
       if (/^(look-left|look-right|look-up|look-down|look)$/.test(value)) {
-        gesture = value;
+        gesture = value === 'look' ? 'eyes' : value;
         gestureStarted = performance.now();
         stopNativeMotion();
-        setStatus(`3D AVATAR • ${value.toUpperCase()} TEST`);
+        setStatus(`3D AVATAR • ${gesture.toUpperCase()} TEST`);
         return;
       }
 
@@ -624,14 +624,14 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'present';
       } else if (/\b(handshake|hand-shake|shake-hand|shake-hands)\b/.test(value)) {
         gesture = 'handshake';
-      } else if (/\b(nod|nodding|yes|agree|agreement)\b/.test(value)) {
-        gesture = 'nod';
       } else if (/\b(shrug|shrugging|uncertain|uncertainty)\b/.test(value)) {
         gesture = 'shrug';
       } else if (/\b(laugh|laughing|laughter)\b/.test(value)) {
         gesture = 'laugh';
+        expression = 'excited';
       } else if (/\b(smile|smiling|happy|happiness)\b/.test(value)) {
         gesture = 'smile';
+        expression = 'smile';
       } else if (/\b(eyes|eye-contact|look|looking|gaze)\b/.test(value)) {
         gesture = 'eyes';
       } else if (/\b(run|running|sprint|sprinting)\b/.test(value)) {
@@ -657,8 +657,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       gestureStarted = performance.now();
       stopNativeMotion();
 
-      // Native-first: authored FBX clips own the fully rigged avatar whenever
-      // a matching action exists. Procedural motion is strictly the fallback.
+      // Native idle is the only authored FBX clip allowed to drive the rig.
+      // Active gestures remain procedural so one controller owns the body bones.
       const nativePatterns: Record<string, RegExp[]> = {
         idle: [/idle/, /stand/, /breath/, /rest/, /neutral/],
         walk: [/walk/, /walking/, /locomotion/],
@@ -1179,9 +1179,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       /*
        * PROCEDURAL ATTENTION LAYER
        *
-       * Native FBX clips own the full rig when an authored clip is active.
-       * Procedural eye/head motion therefore runs only in procedural idle;
-       * explicit gestures and performance states own the same bones otherwise.
+       * One writer owns both eye bones in procedural idle.
+       * PerformanceDirector contributes only a target offset here; it never
+       * writes the eye bones independently.
        */
       if (bones && !nativeMotion && gesture === 'idle') {
         if (now >= nextEyeShift) {
@@ -1189,8 +1189,36 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           eyeTargetY = (Math.random() * 2 - 1) * 0.020;
           nextEyeShift = now + 900 + Math.random() * 1200;
         }
-        eyeX = THREE.MathUtils.damp(eyeX, eyeTargetX, 14, dt);
-        eyeY = THREE.MathUtils.damp(eyeY, eyeTargetY, 14, dt);
+
+        const performanceAge =
+          (now - performanceState.startedAt) /
+          Math.max(performanceState.durationMs, 1);
+        const pulse =
+          Math.sin(Math.min(performanceAge, 1) * Math.PI);
+        const attentionStrength =
+          performanceState.intensity *
+          (0.65 + 0.35 * pulse);
+        const focusX =
+          performanceState.gaze === 'soft_focus'
+            ? -0.045 * attentionStrength
+            : 0;
+        const focusY =
+          performanceState.gaze === 'soft_focus'
+            ? -0.025 * attentionStrength
+            : 0;
+
+        eyeX = THREE.MathUtils.damp(
+          eyeX,
+          eyeTargetX + focusX,
+          14,
+          dt,
+        );
+        eyeY = THREE.MathUtils.damp(
+          eyeY,
+          eyeTargetY + focusY,
+          14,
+          dt,
+        );
 
         addRotation(bones.lEye, 'y', eyeX, 14, dt);
         addRotation(bones.rEye, 'y', eyeX, 14, dt);
@@ -1225,13 +1253,6 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const performanceAge = (now - performanceState.startedAt) / Math.max(performanceState.durationMs, 1);
           const pulse = Math.sin(Math.min(performanceAge, 1) * Math.PI);
           const strength = performanceState.intensity * (0.65 + 0.35 * pulse);
-
-          if (performanceState.gaze === 'soft_focus') {
-          addRotation(bones.lEye, 'y', -0.045 * strength, 10, dt);
-          addRotation(bones.rEye, 'y', -0.045 * strength, 10, dt);
-          addRotation(bones.lEye, 'x', -0.025 * strength, 10, dt);
-          addRotation(bones.rEye, 'x', -0.025 * strength, 10, dt);
-        }
 
         if (performanceState.head === 'small_nod') {
           const nod = Math.sin(time * 2.4) * 0.055 * strength;
@@ -1651,17 +1672,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          setMorph(
-            morphs,
-            0.45 +
-              Math.abs(
-                Math.sin(
-                  time * 7,
-                ),
-              ) *
-                0.20,
-            0.25,
-          );
+          // Facial morphs remain under the centralized mouth/expression layer.
         }
 
         /*
@@ -1677,14 +1688,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          const smileMorphs = morphs.filter((item) =>
-            /smile|mouthsmile|lipcorner|happy/i.test(item.name),
-          );
-          setMorph(
-            smileMorphs.length ? smileMorphs : morphs,
-            Math.max(mouth, 0.16),
-            0.18,
-          );
+          // Facial expression morphs are driven once by the centralized
+          // expression layer above; this gesture only restores the body pose.
         }
 
         /*
@@ -1701,6 +1706,40 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.rEye, 'x', vertical, 10, dt);
           addRotation(bones.neck, 'y', gaze * 0.18, 6, dt);
           addRotation(bones.head, 'y', gaze * 0.35, 7, dt);
+        }
+
+        /*
+         * CHIN TOUCH / THINKING
+         */
+        else if (gesture === 'chin-touch') {
+          addRotation(bones.rShoulder, 'z', -0.18, 10, dt);
+          addRotation(bones.rArm, 'z', -0.58, 10, dt);
+          addRotation(bones.rFore, 'x', -1.00, 10, dt);
+          addRotation(
+            bones.rHand,
+            'z',
+            Math.sin(time * 1.5) * 0.04,
+            10,
+            dt,
+          );
+          addRotation(bones.head, 'x', 0.045, 8, dt);
+        }
+
+        /*
+         * CLOTHES / SELF-ADJUSTMENT
+         */
+        else if (gesture === 'clothes') {
+          addRotation(bones.rShoulder, 'z', -0.16, 10, dt);
+          addRotation(bones.rArm, 'z', -0.34, 10, dt);
+          addRotation(bones.rFore, 'x', -0.62, 10, dt);
+          addRotation(
+            bones.rHand,
+            'z',
+            Math.sin(time * 2) * 0.06,
+            10,
+            dt,
+          );
+          addRotation(bones.spine, 'x', 0.015, 8, dt);
         }
 
         /*
@@ -1891,6 +1930,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           'arms-up': 1600,
           'cross-arms': 1800,
           fingers: 1400,
+          'chin-touch': 1800,
           clothes: 1800,
           sit: 3200,
           stand: 2600,
@@ -1930,6 +1970,33 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       resizeObserver.disconnect();
 
       renderer.setAnimationLoop(null);
+
+      if (mixer && model) {
+        mixer.stopAllAction();
+        mixer.uncacheRoot(model);
+      }
+
+      if (model) {
+        model.traverse((object) => {
+          if (!(object instanceof THREE.Mesh)) return;
+
+          object.geometry.dispose();
+
+          const materials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+
+          materials.forEach((material) => material.dispose());
+        });
+
+        root.remove(model);
+      }
+
+      activeAction = null;
+      nativeMotion = false;
+      mixer = null;
+      model = null;
+
       renderer.dispose();
 
       if (
