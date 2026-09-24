@@ -536,10 +536,26 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
       // Standing/idle: straight relaxed arms, close to the torso.
       // No deliberate elbow bend and never a T-pose.
-      const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop, 0));
-      const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop, 0));
-      const leftPole = leftShoulder.clone().add(new THREE.Vector3(-side * 0.15, -h * 0.20, 0));
-      const rightPole = rightShoulder.clone().add(new THREE.Vector3(side * 0.15, -h * 0.20, 0));
+      // Build every rest target in the avatar's own frame. World-space
+      // X/Z offsets make the arms appear to fold backwards whenever the
+      // character turns.
+      const forward = getAvatarForward();
+      const right = getAvatarRight();
+      const down = new THREE.Vector3(0, -1, 0);
+      const leftHandTarget = leftShoulder.clone()
+        .add(right.clone().multiplyScalar(-side))
+        .add(down.clone().multiplyScalar(drop));
+      const rightHandTarget = rightShoulder.clone()
+        .add(right.clone().multiplyScalar(side))
+        .add(down.clone().multiplyScalar(drop));
+      const leftPole = leftShoulder.clone()
+        .add(right.clone().multiplyScalar(-side * 0.15))
+        .add(down.clone().multiplyScalar(h * 0.20))
+        .add(forward.clone().multiplyScalar(-0.12));
+      const rightPole = rightShoulder.clone()
+        .add(right.clone().multiplyScalar(side * 0.15))
+        .add(down.clone().multiplyScalar(h * 0.20))
+        .add(forward.clone().multiplyScalar(-0.12));
 
       solveTwoBoneIK(map.lArm, map.lFore, map.lHand, leftHandTarget, leftPole, speed, dt);
       solveTwoBoneIK(map.rArm, map.rFore, map.rHand, rightHandTarget, rightPole, speed, dt);
@@ -2409,17 +2425,69 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (gesture === 'jump-forward') {
           const t = THREE.MathUtils.clamp((now - gestureStarted) / 1200, 0, 1);
           const arc = Math.sin(Math.PI * t);
-          const crouch = t < 0.22 ? t / 0.22 : t > 0.78 ? (1 - t) / 0.22 : 0;
-          poseChain([
-            { bone: bones.lThigh, direction: new THREE.Vector3(0, -0.82 + crouch * 0.16, 0.50) },
-            { bone: bones.rThigh, direction: new THREE.Vector3(0, -0.82 + crouch * 0.16, 0.50) },
-            { bone: bones.lCalf, direction: new THREE.Vector3(0, -0.94 + crouch * 0.55, 0.25) },
-            { bone: bones.rCalf, direction: new THREE.Vector3(0, -0.94 + crouch * 0.55, 0.25) },
-          ], 10, dt);
-          root.position.y = THREE.MathUtils.damp(root.position.y, arc * 0.20, 8, dt);
-          root.position.z = THREE.MathUtils.damp(root.position.z, 0.55 * t, 8, dt);
-          addRotation(bones.lArm, 'z', -0.24 * arc, 8, dt);
-          addRotation(bones.rArm, 'z', 0.24 * arc, 8, dt);
+          const landing = t > 0.72 ? THREE.MathUtils.clamp((t - 0.72) / 0.28, 0, 1) : 0;
+          const forward = locomotionVector.clone().normalize();
+          const side = getAvatarRight();
+          const h = avatarFrame?.height ?? 1;
+          const leftHip = new THREE.Vector3();
+          const rightHip = new THREE.Vector3();
+          bones.lThigh?.getWorldPosition(leftHip);
+          bones.rThigh?.getWorldPosition(rightHip);
+          const leftFootRest = restWorldPositions.get(bones.lFoot!);
+          const rightFootRest = restWorldPositions.get(bones.rFoot!);
+
+          // Airborne: thigh travels forward and becomes approximately
+          // horizontal; the knee folds backward/up and the calf follows the
+          // natural rearward bend. During the last part of the arc the targets
+          // move back toward the planted standing feet.
+          const kneeLift = THREE.MathUtils.lerp(h * 0.13, 0, landing);
+          const thighForward = THREE.MathUtils.lerp(h * 0.28, 0, landing);
+          const calfBack = THREE.MathUtils.lerp(h * 0.18, 0, landing);
+          const ankleLift = THREE.MathUtils.lerp(h * 0.22, 0, landing);
+
+          const makeJumpLeg = (
+            hip: THREE.Vector3,
+            restFoot: THREE.Vector3 | undefined,
+            sideSign: number,
+            upper: THREE.Bone | null,
+            lower: THREE.Bone | null,
+            foot: THREE.Bone | null,
+          ) => {
+            if (!restFoot || !upper || !lower || !foot) return;
+            const knee = hip.clone()
+              .add(forward.clone().multiplyScalar(thighForward))
+              .add(new THREE.Vector3(0, -kneeLift, 0))
+              .add(side.clone().multiplyScalar(sideSign * h * 0.015));
+            const ankle = knee.clone()
+              .add(forward.clone().multiplyScalar(-calfBack))
+              .add(new THREE.Vector3(0, -Math.max(h * 0.10, ankleLift), 0))
+              .add(side.clone().multiplyScalar(-sideSign * h * 0.015));
+
+            // Near landing, use the original planted foot target so the
+            // entire leg resolves to the normal standing geometry.
+            const targetFoot = restFoot.clone().lerp(ankle, 1 - landing);
+            solveTwoBoneIK(
+              upper,
+              lower,
+              foot,
+              targetFoot,
+              hip.clone().add(forward.clone().multiplyScalar(0.85)).add(new THREE.Vector3(0, -0.05, 0)),
+              11,
+              dt,
+            );
+          };
+
+          makeJumpLeg(leftHip, leftFootRest, -1, bones.lThigh, bones.lCalf, bones.lFoot);
+          makeJumpLeg(rightHip, rightFootRest, 1, bones.rThigh, bones.rCalf, bones.rFoot);
+
+          root.position.y = arc * h * 0.22;
+          root.position.add(forward.clone().multiplyScalar(0.55 * t));
+
+          // Arms remain close to the torso while airborne and recover to the
+          // straight-down resting posture on landing.
+          const armLift = Math.sin(Math.PI * t) * 0.10;
+          addRotation(bones.lArm, 'z', -armLift, 8, dt);
+          addRotation(bones.rArm, 'z', armLift, 8, dt);
         }
 
         /*
@@ -2916,24 +2984,56 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (gesture === 'jump') {
           const t = THREE.MathUtils.clamp((now - gestureStarted) / 900, 0, 1);
           const arc = Math.sin(Math.PI * t);
-          const crouch = t < 0.24 ? t / 0.24 : t > 0.76 ? (1 - t) / 0.24 : 0;
+          const landing = t > 0.72 ? THREE.MathUtils.clamp((t - 0.72) / 0.28, 0, 1) : 0;
+          const forward = getAvatarForward();
+          const side = getAvatarRight();
+          const h = avatarFrame?.height ?? 1;
+          const leftHip = new THREE.Vector3();
+          const rightHip = new THREE.Vector3();
+          bones.lThigh?.getWorldPosition(leftHip);
+          bones.rThigh?.getWorldPosition(rightHip);
+          const leftFootRest = restWorldPositions.get(bones.lFoot!);
+          const rightFootRest = restWorldPositions.get(bones.rFoot!);
 
-          poseChain(
-            [
-              { bone: bones.lThigh, direction: new THREE.Vector3(-0.04, -0.88 + 0.20 * crouch, 0.46) },
-              { bone: bones.rThigh, direction: new THREE.Vector3(0.04, -0.88 + 0.20 * crouch, 0.46) },
-              { bone: bones.lCalf, direction: new THREE.Vector3(0.03, -0.96 + 1.30 * crouch, 0.30) },
-              { bone: bones.rCalf, direction: new THREE.Vector3(-0.03, -0.96 + 1.30 * crouch, 0.30) },
-            ],
-            10,
-            dt,
-          );
-          addRotation(bones.hips, 'x', -0.10 * crouch, 10, dt);
-          addRotation(bones.lFoot, 'x', -0.24 * crouch, 10, dt);
-          addRotation(bones.rFoot, 'x', -0.24 * crouch, 10, dt);
-          addRotation(bones.lArm, 'z', -0.28 * arc, 10, dt);
-          addRotation(bones.rArm, 'z', 0.28 * arc, 10, dt);
-          root.position.y = arc * 0.22;
+          const makeJumpLeg = (
+            hip: THREE.Vector3,
+            restFoot: THREE.Vector3 | undefined,
+            sideSign: number,
+            upper: THREE.Bone | null,
+            lower: THREE.Bone | null,
+            foot: THREE.Bone | null,
+          ) => {
+            if (!restFoot || !upper || !lower || !foot) return;
+            const knee = hip.clone()
+              .add(forward.clone().multiplyScalar(THREE.MathUtils.lerp(h * 0.28, 0, landing)))
+              .add(new THREE.Vector3(0, -THREE.MathUtils.lerp(h * 0.13, 0, landing), 0))
+              .add(side.clone().multiplyScalar(sideSign * h * 0.015));
+            const ankle = knee.clone()
+              .add(forward.clone().multiplyScalar(-THREE.MathUtils.lerp(h * 0.18, 0, landing)))
+              .add(new THREE.Vector3(0, -THREE.MathUtils.lerp(h * 0.22, 0.10, landing), 0))
+              .add(side.clone().multiplyScalar(-sideSign * h * 0.015));
+            const targetFoot = restFoot.clone().lerp(ankle, 1 - landing);
+            solveTwoBoneIK(
+              upper,
+              lower,
+              foot,
+              targetFoot,
+              hip.clone().add(forward.clone().multiplyScalar(0.85)).add(new THREE.Vector3(0, -0.05, 0)),
+              11,
+              dt,
+            );
+          };
+
+          makeJumpLeg(leftHip, leftFootRest, -1, bones.lThigh, bones.lCalf, bones.lFoot);
+          makeJumpLeg(rightHip, rightFootRest, 1, bones.rThigh, bones.rCalf, bones.rFoot);
+
+          addRotation(bones.hips, 'x', -0.08 * (1 - landing), 10, dt);
+          addRotation(bones.lFoot, 'x', -0.10 * (1 - landing), 10, dt);
+          addRotation(bones.rFoot, 'x', -0.10 * (1 - landing), 10, dt);
+          const armLift = arc * 0.10;
+          addRotation(bones.lArm, 'z', -armLift, 9, dt);
+          addRotation(bones.rArm, 'z', armLift, 9, dt);
+          root.position.y = arc * h * 0.22;
         }
 
         /*
