@@ -526,31 +526,25 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       return null;
     };
 
-    const applyRestArms = (map: BoneMap, h: number, dt: number, speed = 10, swing = 0) => {
+    const applyRestArms = (map: BoneMap, h: number, dt: number, speed = 10) => {
       const side = Math.max(h * 0.018, 0.015);
-      const drop = h * 0.115;
-      const forearmDrop = h * 0.235;
-      const poleBack = h * 0.095;
-
+      const drop = h * 0.37;
       const leftShoulder = new THREE.Vector3();
       const rightShoulder = new THREE.Vector3();
       map.lShoulder?.getWorldPosition(leftShoulder);
       map.rShoulder?.getWorldPosition(rightShoulder);
 
-      // Resting arms are never T-pose: upper arms stay close to the torso,
-      // elbows sit slightly forward/outward, and forearms bend down to relaxed hands.
-      const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop - forearmDrop, 0.045 + swing));
-      const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop - forearmDrop, 0.045 - swing));
-      const leftPole = leftShoulder.clone().add(new THREE.Vector3(-side * 1.7, -drop, -poleBack));
-      const rightPole = rightShoulder.clone().add(new THREE.Vector3(side * 1.7, -drop, -poleBack));
+      // Standing/idle: straight relaxed arms, close to the torso.
+      // No deliberate elbow bend and never a T-pose.
+      const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop, 0));
+      const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop, 0));
+      const leftPole = leftShoulder.clone().add(new THREE.Vector3(-side * 0.15, -h * 0.20, 0));
+      const rightPole = rightShoulder.clone().add(new THREE.Vector3(side * 0.15, -h * 0.20, 0));
 
       solveTwoBoneIK(map.lArm, map.lFore, map.lHand, leftHandTarget, leftPole, speed, dt);
       solveTwoBoneIK(map.rArm, map.rFore, map.rHand, rightHandTarget, rightPole, speed, dt);
-
-      addRotation(map.lHand, 'x', 0.02, speed, dt);
-      addRotation(map.rHand, 'x', 0.02, speed, dt);
-      fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.10, speed, dt));
-      fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.10, speed, dt));
+      fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
+      fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.08, speed, dt));
     };
 
     const rememberBone = (bone: THREE.Bone | null) => {
@@ -2756,17 +2750,27 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           // The hand travels forward/back in a smooth sinusoid while the
           // elbow stays slightly behind the hand. The pole is posterior (-Z),
           // preventing the old "elbow in front / hand behind" reversal.
-          const armSwing = fast ? 0.16 : 0.115;
+          const armSwing = fast ? 0.19 : 0.14;
           const h = avatarFrame?.height ?? 1;
           const side = h * 0.018;
-          const drop = h * 0.35;
+          const elbowDrop = h * 0.19;
+          const handDrop = h * 0.34;
           const forwardSwing = locomotionVector.clone().multiplyScalar(armSwing);
-          const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop, 0));
-          const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop, 0));
-          leftHandTarget.add(forwardSwing.clone().multiplyScalar(rightSwing));
-          rightHandTarget.add(forwardSwing.clone().multiplyScalar(leftSwing));
-          const leftPole = leftShoulder.clone().add(new THREE.Vector3(-h * 0.03, -h * 0.18, 0));
-          const rightPole = rightShoulder.clone().add(new THREE.Vector3(h * 0.03, -h * 0.18, 0));
+
+          // Walk/run: upper arms stay close to the torso, elbows are bent,
+          // and forearms/hands swing opposite the legs.
+          const leftHandTarget = leftShoulder.clone()
+            .add(new THREE.Vector3(-side, -handDrop, 0))
+            .add(forwardSwing.clone().multiplyScalar(rightSwing));
+          const rightHandTarget = rightShoulder.clone()
+            .add(new THREE.Vector3(side, -handDrop, 0))
+            .add(forwardSwing.clone().multiplyScalar(leftSwing));
+          const leftPole = leftShoulder.clone()
+            .add(new THREE.Vector3(-side * 1.4, -elbowDrop, 0))
+            .add(forwardSwing.clone().multiplyScalar(-rightSwing * 0.25));
+          const rightPole = rightShoulder.clone()
+            .add(new THREE.Vector3(side * 1.4, -elbowDrop, 0))
+            .add(forwardSwing.clone().multiplyScalar(-leftSwing * 0.25));
 
           solveTwoBoneIK(
             bones.lArm,
