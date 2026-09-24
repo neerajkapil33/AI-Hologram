@@ -1077,6 +1077,18 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'present';
       } else if (/\b(handshake|hand-shake|shake-hand|shake-hands)\b/.test(value)) {
         gesture = 'handshake';
+      } else if (/\b(namaste|namaskar|join(ed)? hands?|palms? together)\b/.test(value)) {
+        gesture = 'namaste';
+      } else if (/\b(hello|greet|greeting|say hello|welcome)\b/.test(value)) {
+        gesture = 'greet';
+      } else if (/\b(one leg|stand on one leg|single leg|balance on one leg)\b/.test(value)) {
+        gesture = 'one-leg';
+      } else if (/\b(jump|jumping|leap|leaping)\b.*\b(forward|ahead|front)\b/.test(value)) {
+        gesture = 'jump-forward';
+      } else if (/\b(walk|go|move)\b.*\b(back|backward|behind)\b/.test(value)) {
+        gesture = 'walk-back';
+      } else if (/\b(walk|go|move)\b.*\b(front|forward|ahead)\b/.test(value)) {
+        gesture = 'walk-forward';
       } else if (/\b(shrug|shrugging|uncertain|uncertainty)\b/.test(value)) {
         gesture = 'shrug';
       } else if (/\b(laugh|laughing|laughter)\b/.test(value)) {
@@ -1793,23 +1805,16 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * already provide breathing and never enter this procedural branch.
          */
         if (gesture === 'idle') {
-          addRotation(
-            bones.spine,
-            'x',
-            Math.sin(time * 1.5) *
-              0.018,
-            5,
-            dt,
-          );
-
-          addRotation(
-            bones.head,
-            'y',
-            Math.sin(time * 0.8) *
-              0.025,
-            4,
-            dt,
-          );
+          // Quiet human postural oscillation + breathing. The chest expands
+          // subtly while the head and pelvis make very small equilibrium
+          // corrections rather than remaining perfectly frozen.
+          const breathRate = speaking ? 2.2 : 1.25;
+          const breath = Math.sin(time * breathRate);
+          const breathAmp = speaking ? 0.014 : 0.010;
+          addRotation(bones.spine, 'x', breath * breathAmp, 5, dt);
+          addRotation(bones.spine1, 'x', breath * breathAmp * 0.75, 5, dt);
+          addRotation(bones.spine2, 'x', breath * breathAmp * 0.55, 5, dt);
+          addRotation(bones.head, 'y', Math.sin(time * 0.8) * 0.025, 4, dt);
         }
 
         /*
@@ -2086,6 +2091,97 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * GREETING / NAMASTE
+         */
+        else if (gesture === 'greet' || gesture === 'namaste') {
+          const palms = gesture === 'namaste';
+          const shoulder = new THREE.Vector3();
+          const shoulderR = new THREE.Vector3();
+          bones.lShoulder?.getWorldPosition(shoulder);
+          bones.rShoulder?.getWorldPosition(shoulderR);
+          const mid = shoulder.clone().lerp(shoulderR, 0.5);
+          const target = mid.add(new THREE.Vector3(0, (avatarFrame?.height ?? 1) * (palms ? 0.10 : 0.18), 0.34));
+          solveTwoBoneIK(bones.lArm, bones.lFore, bones.lHand, target.clone().add(new THREE.Vector3(-0.07, 0, 0)), shoulder.clone().add(new THREE.Vector3(0, 0, -0.6)), 10, dt);
+          solveTwoBoneIK(bones.rArm, bones.rFore, bones.rHand, target.clone().add(new THREE.Vector3(0.07, 0, 0)), shoulderR.clone().add(new THREE.Vector3(0, 0, -0.6)), 10, dt);
+          if (palms) {
+            addRotation(bones.lHand, 'z', -0.12, 10, dt);
+            addRotation(bones.rHand, 'z', 0.12, 10, dt);
+            fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.08, 10, dt));
+            fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.08, 10, dt));
+          } else {
+            addRotation(bones.rHand, 'y', Math.sin(time * 8) * 0.22, 12, dt);
+            addRotation(bones.rFore, 'z', -0.12, 10, dt);
+          }
+          addRotation(bones.head, 'x', palms ? 0.02 : -0.03, 7, dt);
+        }
+
+        /*
+         * ONE-LEG BALANCE
+         */
+        else if (gesture === 'one-leg') {
+          const t = now - gestureStarted;
+          const balance = Math.sin(t * 0.0022) * 0.025;
+          const support = restWorldPositions.get(bones.rFoot!);
+          const thigh = new THREE.Vector3();
+          bones.lThigh?.getWorldPosition(thigh);
+          const raisedFoot = thigh.clone().add(new THREE.Vector3(-0.03, -0.02, 0.12));
+          if (support) {
+            solveTwoBoneIK(bones.rThigh, bones.rCalf, bones.rFoot, support.clone(), thigh.clone().add(new THREE.Vector3(0, 0, -0.28)), 9, dt);
+          }
+          solveTwoBoneIK(bones.lThigh, bones.lCalf, bones.lFoot, raisedFoot, thigh.clone().add(new THREE.Vector3(0, 0.10, -0.30)), 9, dt);
+          addRotation(bones.hips, 'z', balance, 5, dt);
+          addRotation(bones.spine, 'z', balance * 0.35, 5, dt);
+          addRotation(bones.lThigh, 'x', -0.25, 7, dt);
+          addRotation(bones.lCalf, 'x', 0.55, 7, dt);
+          addRotation(bones.lFoot, 'x', -0.18, 7, dt);
+          addRotation(bones.head, 'y', Math.sin(t * 0.0015) * 0.02, 5, dt);
+        }
+
+        /*
+         * FORWARD / BACKWARD LOCOMOTION
+         */
+        else if (gesture === 'walk-forward' || gesture === 'walk-back') {
+          const elapsed = now - gestureStarted;
+          const dir = gesture === 'walk-forward' ? 1 : -1;
+          const phase = elapsed * 0.0048;
+          const stride = Math.sin(phase) * 0.10;
+          const lift = Math.max(0, Math.sin(phase + Math.PI / 2)) * 0.035;
+          const leftFoot = restWorldPositions.get(bones.lFoot!);
+          const rightFoot = restWorldPositions.get(bones.rFoot!);
+          if (leftFoot && rightFoot) {
+            solveTwoBoneIK(bones.lThigh, bones.lCalf, bones.lFoot,
+              leftFoot.clone().add(new THREE.Vector3(0, lift, stride)),
+              leftFoot.clone().add(new THREE.Vector3(0, 0, -0.28)), 8, dt);
+            solveTwoBoneIK(bones.rThigh, bones.rCalf, bones.rFoot,
+              rightFoot.clone().add(new THREE.Vector3(0, lift, -stride)),
+              rightFoot.clone().add(new THREE.Vector3(0, 0, -0.28)), 8, dt);
+          }
+          const distance = dir * Math.min(0.75, elapsed * 0.00028);
+          root.position.z = THREE.MathUtils.damp(root.position.z, distance, 4.5, dt);
+          addRotation(bones.hips, 'y', stride * 0.12, 6, dt);
+          addRotation(bones.spine, 'z', stride * 0.06, 6, dt);
+        }
+
+        /*
+         * JUMP FORWARD
+         */
+        else if (gesture === 'jump-forward') {
+          const t = THREE.MathUtils.clamp((now - gestureStarted) / 1200, 0, 1);
+          const arc = Math.sin(Math.PI * t);
+          const crouch = t < 0.22 ? t / 0.22 : t > 0.78 ? (1 - t) / 0.22 : 0;
+          poseChain([
+            { bone: bones.lThigh, direction: new THREE.Vector3(0, -0.82 + crouch * 0.16, 0.50) },
+            { bone: bones.rThigh, direction: new THREE.Vector3(0, -0.82 + crouch * 0.16, 0.50) },
+            { bone: bones.lCalf, direction: new THREE.Vector3(0, -0.94 + crouch * 0.55, 0.25) },
+            { bone: bones.rCalf, direction: new THREE.Vector3(0, -0.94 + crouch * 0.55, 0.25) },
+          ], 10, dt);
+          root.position.y = THREE.MathUtils.damp(root.position.y, arc * 0.20, 8, dt);
+          root.position.z = THREE.MathUtils.damp(root.position.z, 0.55 * t, 8, dt);
+          addRotation(bones.lArm, 'z', -0.24 * arc, 8, dt);
+          addRotation(bones.rArm, 'z', 0.24 * arc, 8, dt);
+        }
+
+        /*
          * SHRUG
          */
         else if (
@@ -2154,7 +2250,13 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             dt,
           );
 
-          // Facial morphs remain under the centralized mouth/expression layer.
+          // Laughter changes breathing and mouth opening as well as the
+          // upper-body rhythm. The expression/morph system remains centralized.
+          targetMouth = 0.52 + Math.abs(Math.sin(time * 7)) * 0.20;
+          speaking = false;
+          // Short expiratory bursts are represented by quicker chest/spine
+          // oscillation; this is intentionally stronger than quiet breathing.
+          addRotation(bones.spine2, 'x', 0.018 + Math.abs(Math.sin(time * 7)) * 0.018, 12, dt);
         }
 
         /*
@@ -2448,22 +2550,28 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const rightShoulder = new THREE.Vector3();
           bones.lShoulder?.getWorldPosition(leftShoulder);
           bones.rShoulder?.getWorldPosition(rightShoulder);
+          // Human gait rule: arms counter-phase the legs. When the left
+          // leg advances, the right hand advances; the shoulder leads and
+          // the elbow remains naturally flexed instead of pointing forward
+          // while the hand travels backward.
+          const armSwing = fast ? 0.16 : 0.12;
+          const armDrop = fast ? -0.10 : -0.08;
           solveTwoBoneIK(
             bones.lArm,
             bones.lFore,
             bones.lHand,
-            leftShoulder.clone().add(new THREE.Vector3(-0.03, -0.12, -0.08 * rightSwing)),
-            leftShoulder.clone().add(new THREE.Vector3(0, 0, 1)),
-            7,
+            leftShoulder.clone().add(new THREE.Vector3(-0.025, armDrop, armSwing * rightSwing)),
+            leftShoulder.clone().add(new THREE.Vector3(0, 0, 0.34)),
+            8,
             dt,
           );
           solveTwoBoneIK(
             bones.rArm,
             bones.rFore,
             bones.rHand,
-            rightShoulder.clone().add(new THREE.Vector3(0.03, -0.12, -0.08 * leftSwing)),
-            rightShoulder.clone().add(new THREE.Vector3(0, 0, 1)),
-            7,
+            rightShoulder.clone().add(new THREE.Vector3(0.025, armDrop, armSwing * leftSwing)),
+            rightShoulder.clone().add(new THREE.Vector3(0, 0, 0.34)),
+            8,
             dt,
           );
         }
@@ -2722,6 +2830,12 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       if (!nativeMotion && gesture !== 'idle') {
         const durations: Record<string, number> = {
           wave: 1800,
+          greet: 1800,
+          namaste: 2400,
+          'one-leg': 3200,
+          'walk-forward': 3200,
+          'walk-back': 3200,
+          'jump-forward': 1400,
           point: 1600,
           present: 1800,
           handshake: 2000,
