@@ -1067,6 +1067,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'write-notepad';
       } else if (/\b(cross-legs|crossed-legs|leg-over-thigh|legs-crossed)\b/.test(value)) {
         gesture = 'cross-sit';
+      } else if (/\b(hold-chair|holding-chair|chair-support)\b/.test(value) && /\b(sit|seat|sitting)\b/.test(value)) {
+        gesture = 'sit-chair-human';
       } else if (/\b(hold-chair|holding-chair|chair-support)\b/.test(value)) {
         gesture = 'hold-chair';
       } else if (/\b(point|pointing|indicate|indicating)\b/.test(value)) {
