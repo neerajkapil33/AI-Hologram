@@ -1177,28 +1177,20 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       }
 
       /*
-       * HUMAN-LIKE HEAD / NECK / EYE LAYER
-       * This runs independently of hand/body gestures so facial attention is
-       * not frozen whenever a gesture is active.
+       * PROCEDURAL ATTENTION LAYER
+       *
+       * Native FBX clips own the full rig when an authored clip is active.
+       * Procedural eye/head motion therefore runs only in procedural idle;
+       * explicit gestures and performance states own the same bones otherwise.
        */
-      if (bones && !nativeMotion) {
-        const attention = speaking ? 1 : 0.85;
+      if (bones && !nativeMotion && gesture === 'idle') {
         if (now >= nextEyeShift) {
-          eyeTargetX = (Math.random() * 2 - 1) * 0.055;
-          eyeTargetY = (Math.random() * 2 - 1) * 0.032;
-          nextEyeShift = now + 650 + Math.random() * 950;
+          eyeTargetX = (Math.random() * 2 - 1) * 0.035;
+          eyeTargetY = (Math.random() * 2 - 1) * 0.020;
+          nextEyeShift = now + 900 + Math.random() * 1200;
         }
         eyeX = THREE.MathUtils.damp(eyeX, eyeTargetX, 14, dt);
         eyeY = THREE.MathUtils.damp(eyeY, eyeTargetY, 14, dt);
-
-        addRotation(bones.neck, 'y', Math.sin(time * 0.7) * 0.055 * attention, 5, dt);
-        addRotation(bones.neck1, 'y', Math.sin(time * 0.7 + 0.12) * 0.045 * attention, 5, dt);
-        addRotation(bones.neck2, 'y', Math.sin(time * 0.7 + 0.22) * 0.050 * attention, 5, dt);
-        addRotation(bones.head, 'y', Math.sin(time * 0.9 + 1.1) * 0.10 * attention, 6, dt);
-        addRotation(bones.neck, 'x', Math.sin(time * 0.85 + 0.7) * 0.035 * attention, 5, dt);
-        addRotation(bones.neck1, 'x', Math.sin(time * 0.85 + 0.8) * 0.025 * attention, 5, dt);
-        addRotation(bones.neck2, 'x', Math.sin(time * 0.85 + 0.9) * 0.028 * attention, 5, dt);
-        addRotation(bones.head, 'x', Math.sin(time * 0.72) * 0.070 * attention, 6, dt);
 
         addRotation(bones.lEye, 'y', eyeX, 14, dt);
         addRotation(bones.rEye, 'y', eyeX, 14, dt);
@@ -1226,11 +1218,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * They are converted here into small rig-aware offsets so the real FBX
          * performs instead of merely receiving a label.
          */
-        const performanceAge = (now - performanceState.startedAt) / Math.max(performanceState.durationMs, 1);
-        const pulse = Math.sin(Math.min(performanceAge, 1) * Math.PI);
-        const strength = performanceState.intensity * (0.65 + 0.35 * pulse);
+        // PerformanceDirector and gesture motion share the same bones.
+        // Never stack both controllers: an explicit gesture owns the rig,
+        // while PerformanceDirector offsets are applied only during idle.
+        if (gesture === 'idle') {
+          const performanceAge = (now - performanceState.startedAt) / Math.max(performanceState.durationMs, 1);
+          const pulse = Math.sin(Math.min(performanceAge, 1) * Math.PI);
+          const strength = performanceState.intensity * (0.65 + 0.35 * pulse);
 
-        if (performanceState.gaze === 'camera') {
+          if (performanceState.gaze === 'camera') {
           addRotation(bones.lEye, 'y', 0, 12, dt);
           addRotation(bones.rEye, 'y', 0, 12, dt);
           addRotation(bones.lEye, 'x', 0, 12, dt);
@@ -1280,34 +1276,21 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           addRotation(bones.spine2, 'x', 0.018 * strength, 7, dt);
           addRotation(bones.lShoulder, 'z', -0.025 * strength, 7, dt);
           addRotation(bones.rShoulder, 'z', 0.025 * strength, 7, dt);
-        } else if (performanceState.body === 'athletic') {
-          addRotation(bones.spine2, 'x', -0.035 * strength, 7, dt);
-          addRotation(bones.lArm, 'z', 0.08 * strength, 7, dt);
-          addRotation(bones.rArm, 'z', -0.08 * strength, 7, dt);
+          } else if (performanceState.body === 'athletic') {
+            addRotation(bones.spine2, 'x', -0.035 * strength, 7, dt);
+            addRotation(bones.lArm, 'z', 0.08 * strength, 7, dt);
+            addRotation(bones.rArm, 'z', -0.08 * strength, 7, dt);
+          }
         }
 
         /*
-         * Always maintain a subtle breathing motion.
-         */
-        addRotation(
-          bones.spine,
-          'x',
-          Math.sin(time * 1.4) *
-            0.012,
-          5,
-          dt,
-        );
-
-        /*
          * IDLE
+         *
+         * restoreAllBones() above already establishes the FBX rest pose.
+         * Keep exactly one breathing layer here; authored FBX idle clips
+         * already provide breathing and never enter this procedural branch.
          */
         if (gesture === 'idle') {
-          restoreUpperBody(
-            bones,
-            7,
-            dt,
-          );
-
           addRotation(
             bones.spine,
             'x',
