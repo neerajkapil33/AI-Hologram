@@ -1098,6 +1098,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
       setMorph(mouthTargets, mouth, 0.72);
 
+      // Always release the previous expression before applying the new one.
+      // This prevents smile/brow shapes from becoming permanently stuck.
+      setMorph(expressionMorphs, 0, 0.12);
+
       const faceExpression = expression;
       if (faceExpression !== 'neutral' && expressionMorphs.length) {
         const expressionTargets = expressionMorphs.filter((item) => {
@@ -1318,6 +1322,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
           addRotation(bones.rHand, 'z', Math.sin(time * 9) * 0.16 * adaptiveProfile.hand, 12, dt);
           addRotation(bones.rHand, 'y', Math.sin(time * 9 + Math.PI / 2) * 0.06, 10, dt);
+          fingerBones.right.forEach((finger, index) =>
+            addRotation(finger, 'x', 0.08 + Math.sin(time * 7 + index * 0.22) * 0.05, 12, dt),
+          );
         }
 
         /*
@@ -1666,6 +1673,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * FULL BODY
          */
         else if (gesture === 'sit') {
+          addRotation(bones.hips, 'x', -0.10, 4.5, dt);
           addRotation(bones.lThigh, 'x', -0.95, 4.5, dt);
           addRotation(bones.rThigh, 'x', -0.95, 4.5, dt);
           addRotation(bones.lCalf, 'x', 1.35, 4.5, dt);
