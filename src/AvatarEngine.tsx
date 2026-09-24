@@ -973,17 +973,27 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
     let penObject: THREE.Mesh | null = null;
     const penRestWorld = new THREE.Vector3();
 
+    const removeFurniture = () => {
+      if (!furniture) return;
+      furniture.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
+        else if (material) material.dispose();
+      });
+      furniture.removeFromParent();
+      furniture = null;
+      bookObject = null;
+      notepadObject = null;
+      penObject = null;
+    };
+
+    // AURA presentation mode has no chair, table or workstation props.
+    // Any stale props from an earlier hot-reload/runtime state are removed.
     const ensureFurniture = () => {
-      if (furniture || !avatarFrame) return furniture;
-      furniture = createFurniture(avatarFrame.height);
-      bookObject?.traverse((object) => { object.visible = true; });
-      notepadObject?.traverse((object) => { object.visible = true; });
-      if (penObject) {
-        penObject.getWorldPosition(penRestWorld);
-        penObject.removeFromParent();
-        scene.add(penObject);
-      }
-      return furniture;
+      removeFurniture();
+      return null;
     };
 
     const setGlasses = (visible: boolean) => {
@@ -1741,9 +1751,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
       if (bones && !nativeMotion) {
         // A command can arrive before the FBX finishes loading. Create the
         // workstation lazily once the avatar frame exists, never on startup.
-        if (!furniture && avatarFrame && ['sit-chair', 'sit-chair-human', 'hold-chair', 'read-book', 'write-notepad', 'study-write', 'clear-object-side'].includes(gesture)) {
-          ensureFurniture();
-        }
+        // Presentation mode: workstation props are never rendered.
+        // This also clears any stale chair/table left by an earlier runtime.
+        if (furniture) removeFurniture();
 
         /*
          * Procedural fallback is deliberately conservative. The FBX's own
