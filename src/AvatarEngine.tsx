@@ -1959,7 +1959,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * already provide breathing and never enter this procedural branch.
          */
         if (gesture === 'idle') {
-          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11, 0);
+          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11);
           // Quiet human postural oscillation + breathing. The chest expands
           // subtly while the head and pelvis make very small equilibrium
           // corrections rather than remaining perfectly frozen.
@@ -3003,7 +3003,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           );
           addRotation(bones.hips, 'x', -0.035 * sitAmount, 6, dt);
           if (!chairMode || !furniture) {
-            applyRestArms(bones, h, dt, 9, 0);
+            applyRestArms(bones, h, dt, 9);
           }
           restoreBone(bones.lFoot, 8, dt);
           restoreBone(bones.rFoot, 8, dt);
@@ -3032,7 +3032,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (gesture === 'stand') {
           restoreLowerBody(bones, 4.5, dt);
           restoreBone(bones.spine, 4, dt);
-          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11, 0);
+          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11);
           root.position.y = THREE.MathUtils.damp(root.position.y, 0, 5, dt);
         }
 
