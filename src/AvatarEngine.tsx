@@ -455,11 +455,15 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
     let targetRotation = 0;
     let rotationStep = 0;
+    // World-space locomotion: north = -Z, east = +X, south = +Z, west = -X.
+    let locomotionHeading = 0;
+    let locomotionVector = new THREE.Vector3(0, 0, 1);
     const glassesObjects: THREE.Object3D[] = [];
 
     const morphs: Morph[] = [];
     const blinkMorphs: Morph[] = [];
     const expressionMorphs: Morph[] = [];
+    const tongueMorphs: Morph[] = [];
     // Facial reference calibration: these semantic buckets are populated from
     // the FBX's own morphTargetDictionary. No second face mesh is introduced.
     const faceMorphSets: Record<string, Morph[]> = {
@@ -498,6 +502,55 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
 
     const setStatus = (value: string) => {
       statusRef.current?.(value);
+    };
+
+    const setLocomotionDirection = (direction: 'north' | 'east' | 'south' | 'west') => {
+      const vectors: Record<string, THREE.Vector3> = {
+        north: new THREE.Vector3(0, 0, -1),
+        east: new THREE.Vector3(1, 0, 0),
+        south: new THREE.Vector3(0, 0, 1),
+        west: new THREE.Vector3(-1, 0, 0),
+      };
+      const v = vectors[direction].clone().normalize();
+      locomotionVector.copy(v);
+      // Avatar forward is +Z in the normalized presentation scene.
+      locomotionHeading = Math.atan2(v.x, v.z);
+      targetRotation = locomotionHeading;
+    };
+
+    const getLocomotionDirection = (value: string): 'north' | 'east' | 'south' | 'west' | null => {
+      if (/\b(north|n)\b/.test(value)) return 'north';
+      if (/\b(east|e)\b/.test(value)) return 'east';
+      if (/\b(south|s)\b/.test(value)) return 'south';
+      if (/\b(west|w)\b/.test(value)) return 'west';
+      return null;
+    };
+
+    const applyRestArms = (map: BoneMap, h: number, dt: number, speed = 10, swing = 0) => {
+      const side = Math.max(h * 0.018, 0.015);
+      const drop = h * 0.115;
+      const forearmDrop = h * 0.235;
+      const poleBack = h * 0.095;
+
+      const leftShoulder = new THREE.Vector3();
+      const rightShoulder = new THREE.Vector3();
+      map.lShoulder?.getWorldPosition(leftShoulder);
+      map.rShoulder?.getWorldPosition(rightShoulder);
+
+      // Resting arms are never T-pose: upper arms stay close to the torso,
+      // elbows sit slightly forward/outward, and forearms bend down to relaxed hands.
+      const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop - forearmDrop, 0.045 + swing));
+      const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop - forearmDrop, 0.045 - swing));
+      const leftPole = leftShoulder.clone().add(new THREE.Vector3(-side * 1.7, -drop, -poleBack));
+      const rightPole = rightShoulder.clone().add(new THREE.Vector3(side * 1.7, -drop, -poleBack));
+
+      solveTwoBoneIK(map.lArm, map.lFore, map.lHand, leftHandTarget, leftPole, speed, dt);
+      solveTwoBoneIK(map.rArm, map.rFore, map.rHand, rightHandTarget, rightPole, speed, dt);
+
+      addRotation(map.lHand, 'x', 0.02, speed, dt);
+      addRotation(map.rHand, 'x', 0.02, speed, dt);
+      fingerBones.left.forEach((finger) => addRotation(finger, 'x', 0.10, speed, dt));
+      fingerBones.right.forEach((finger) => addRotation(finger, 'x', 0.10, speed, dt));
     };
 
     const rememberBone = (bone: THREE.Bone | null) => {
@@ -1023,6 +1076,16 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         .replace(/--+/g, '-')
         .trim();
 
+      const requestedDirection = getLocomotionDirection(value);
+      if (/\b(walk|walking|run|running|move|go|locomotion)\b/.test(value) && requestedDirection) {
+        setLocomotionDirection(requestedDirection);
+        gesture = /\b(run|running)\b/.test(value) ? 'run' : 'walk';
+        gestureStarted = performance.now();
+        stopNativeMotion();
+        setStatus(`3D AVATAR • ${gesture.toUpperCase()} • FACING ${requestedDirection.toUpperCase()}`);
+        return;
+      }
+
       if (value === 'reset-rotation' || value === 'face-front' || value === 'front') {
         rotationStep = 0;
         targetRotation = 0;
@@ -1277,7 +1340,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           speaking = false;
           expression = 'neutral';
           facialPreset = 'neutral';
-          playNative([/idle/, /stand/, /breath/, /rest/, /neutral/], true, true);
+          // Do not restart an authored idle clip here: some FBX exports use a
+          // T-pose as their idle/default clip. Procedural rest posture owns the rig.
+          stopNativeMotion();
         } else if (/laugh|laughter/.test(value)) {
           expression = 'excited';
           facialPreset = 'laugh';
@@ -1526,19 +1591,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         // lane is intentionally unobstructed. Chair/table props are created
         // only when a chair/table interaction is explicitly requested.
 
-        nativeMotion = playNative(
-          [
-            /idle/,
-            /stand/,
-            /breath/,
-            /rest/,
-            /neutral/,
-          ],
-          true,
-          true,
-        );
+        nativeMotion = false;
+        stopNativeMotion();
 
-        const nativeStarted = nativeMotion;
+        const nativeStarted = false;
 
         console.log(
           '[Neeraj Avatar] Skeleton:',
@@ -1587,17 +1643,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         );
 
         setStatus(
-          `NEERAJ AVATAR READY • FULL BODY • ${
-            loaded.animations.length
-          } FBX CLIP${
-            loaded.animations.length === 1
-              ? ''
-              : 'S'
-          } • ${
-            nativeStarted
-              ? 'NATIVE MOTION PLAYING'
-              : 'PROCEDURAL MOTION'
-          }`,
+          `NEERAJ AVATAR READY • FULL BODY • ${loaded.animations.length} FBX CLIP${loaded.animations.length === 1 ? '' : 'S'} • PROCEDURAL RIG MOTION`,
         );
       },
       undefined,
@@ -1711,13 +1757,19 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         );
 
       const openMouthMorphs = morphs.filter((item) =>
+        !tongueMorphs.includes(item) &&
         /viseme|mouthopen|jawopen|phoneme|^aa$|^ah$|^ao$|^oh$|^uh$|open|vowel|talk|speech|lip/i.test(norm(item.name)),
       );
       // Some exports name the facial keys simply "mouth" or "lip". If the
       // FBX has facial morphs but no explicit open-mouth key, drive the facial
       // morph set rather than leaving the lips permanently sealed.
-      const mouthTargets = openMouthMorphs.length ? openMouthMorphs : morphs;
+      const mouthTargets = openMouthMorphs.length
+        ? openMouthMorphs
+        : morphs.filter((item) => !tongueMorphs.includes(item));
       setMorph(mouthTargets, mouth, 0.72);
+      // Tongue stays inside the mouth at rest. It is never used as a speech
+      // viseme, preventing the tongue from appearing between the teeth.
+      setMorph(tongueMorphs, 0, 0.45);
 
       // Reference-expression calibration. Each bucket uses the FBX's own
       // morph targets and blends gradually toward the requested expression.
@@ -1900,6 +1952,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
          * already provide breathing and never enter this procedural branch.
          */
         if (gesture === 'idle') {
+          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11, 0);
           // Quiet human postural oscillation + breathing. The chest expands
           // subtly while the head and pelvis make very small equilibrium
           // corrections rather than remaining perfectly frozen.
@@ -2290,7 +2343,9 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
               rightFoot.clone().add(new THREE.Vector3(0, 0, -0.28)), 8, dt);
           }
           const distance = dir * Math.min(0.75, elapsed * 0.00028);
-          root.position.z = THREE.MathUtils.damp(root.position.z, distance, 4.5, dt);
+          const move = locomotionVector.clone().multiplyScalar(distance);
+          root.position.x = THREE.MathUtils.damp(root.position.x, move.x, 4.5, dt);
+          root.position.z = THREE.MathUtils.damp(root.position.z, move.z, 4.5, dt);
           addRotation(bones.hips, 'y', stride * 0.12, 6, dt);
           addRotation(bones.spine, 'z', stride * 0.06, 6, dt);
         }
@@ -2637,7 +2692,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             const swingDistance = fast ? 0.26 : 0.18;
             const clearance = fast ? 0.10 : 0.055;
             const lift = Math.max(0, Math.sin(phaseOffset)) * clearance;
-            return base.add(new THREE.Vector3(0, lift, swing * swingDistance));
+            const forward = locomotionVector.clone().multiplyScalar(swing * swingDistance);
+            return base.add(new THREE.Vector3(forward.x, lift, forward.z));
           };
 
           const leftTarget = gaitTarget(leftFootRest, leftSwing, phase + Math.PI / 2);
@@ -2687,18 +2743,24 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           // The hand travels forward/back in a smooth sinusoid while the
           // elbow stays slightly behind the hand. The pole is posterior (-Z),
           // preventing the old "elbow in front / hand behind" reversal.
-          const armSwing = fast ? 0.19 : 0.145;
-          const armDrop = fast ? -0.09 : -0.075;
-          const relaxedElbowBack = new THREE.Vector3(0, 0, -0.30);
-          const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-0.018, armDrop, armSwing * rightSwing));
-          const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(0.018, armDrop, armSwing * leftSwing));
+          const armSwing = fast ? 0.16 : 0.115;
+          const h = avatarFrame?.height ?? 1;
+          const side = h * 0.018;
+          const drop = h * 0.35;
+          const forwardSwing = locomotionVector.clone().multiplyScalar(armSwing);
+          const leftHandTarget = leftShoulder.clone().add(new THREE.Vector3(-side, -drop, 0));
+          const rightHandTarget = rightShoulder.clone().add(new THREE.Vector3(side, -drop, 0));
+          leftHandTarget.add(forwardSwing.clone().multiplyScalar(rightSwing));
+          rightHandTarget.add(forwardSwing.clone().multiplyScalar(leftSwing));
+          const leftPole = leftShoulder.clone().add(new THREE.Vector3(-h * 0.03, -h * 0.18, 0));
+          const rightPole = rightShoulder.clone().add(new THREE.Vector3(h * 0.03, -h * 0.18, 0));
 
           solveTwoBoneIK(
             bones.lArm,
             bones.lFore,
             bones.lHand,
             leftHandTarget,
-            leftShoulder.clone().add(relaxedElbowBack),
+            leftPole,
             11,
             dt,
           );
@@ -2707,7 +2769,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             bones.rFore,
             bones.rHand,
             rightHandTarget,
-            rightShoulder.clone().add(relaxedElbowBack),
+            rightPole,
             11,
             dt,
           );
@@ -2852,29 +2914,46 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           // trunk follows. This keeps the knees behind the thighs rather
           // than pushing the shins forward.
           const sitAmount = smooth(t);
-          const hip = new THREE.Vector3();
-          bones.lThigh?.getWorldPosition(hip);
-          const seatY = (avatarFrame?.height ?? 1) * 0.45;
-          const footY = restWorldPositions.get(bones.lFoot!)?.y ?? 0;
-          // The pelvis should settle onto the seat while the feet remain on
-          // the floor. The descent is gradual and synchronized with hip/knee
-          // flexion rather than being a simple vertical drop.
-          const rootDrop = THREE.MathUtils.clamp((seatY - footY) * 0.22, 0.09, (avatarFrame?.height ?? 1) * 0.16);
-          root.position.y = -rootDrop * sitAmount;
+          const h = avatarFrame?.height ?? 1;
+          const seatY = h * 0.45;
+          const restHipY = restWorldPositions.get(bones.hips!)?.y ?? h * 0.52;
+          const seatRootY = seatY - restHipY;
+
+          // Seat the pelvis at the seat height instead of using an arbitrary
+          // vertical drop. This gives a repeatable human sitting geometry.
+          root.position.y = THREE.MathUtils.damp(root.position.y, seatRootY * sitAmount, 7, dt);
 
           const leftFoot = restWorldPositions.get(bones.lFoot!);
           const rightFoot = restWorldPositions.get(bones.rFoot!);
-          if (leftFoot && rightFoot) {
-            const kneeBack = new THREE.Vector3(0, 0, -0.28 * (avatarFrame?.height ?? 1));
-            const leftTarget = leftFoot.clone().add(new THREE.Vector3(0, 0.08, 0.12 * (1 - sitAmount)));
-            const rightTarget = rightFoot.clone().add(new THREE.Vector3(0, 0.08, 0.12 * (1 - sitAmount)));
-
+          if (leftFoot && rightFoot && bones.lThigh && bones.rThigh && bones.lCalf && bones.rCalf) {
             const leftHip = new THREE.Vector3();
             const rightHip = new THREE.Vector3();
-            bones.lThigh?.getWorldPosition(leftHip);
-            bones.rThigh?.getWorldPosition(rightHip);
-            solveTwoBoneIK(bones.lThigh, bones.lCalf, bones.lFoot, leftTarget, leftHip.clone().add(kneeBack), 8, dt);
-            solveTwoBoneIK(bones.rThigh, bones.rCalf, bones.rFoot, rightTarget, rightHip.clone().add(kneeBack), 8, dt);
+            bones.lThigh.getWorldPosition(leftHip);
+            bones.rThigh.getWorldPosition(rightHip);
+
+            // Seated anatomy: thigh is parallel to the floor and the lower leg
+            // drops vertically from the knee to the planted ankle.
+            const thighLengthL = Math.max(leftHip.distanceTo(restWorldPositions.get(bones.lCalf!) ?? leftHip), h * 0.12);
+            const thighLengthR = Math.max(rightHip.distanceTo(restWorldPositions.get(bones.rCalf!) ?? rightHip), h * 0.12);
+            const forward = new THREE.Vector3(0, 0, 1);
+            const leftKnee = leftHip.clone().add(forward.clone().multiplyScalar(thighLengthL * 0.92));
+            const rightKnee = rightHip.clone().add(forward.clone().multiplyScalar(thighLengthR * 0.92));
+
+            poseBoneToward(bones.lThigh, leftKnee.clone().sub(leftHip).normalize(), 8, dt);
+            poseBoneToward(bones.rThigh, rightKnee.clone().sub(rightHip).normalize(), 8, dt);
+
+            model?.updateMatrixWorld(true);
+            const kneeL = new THREE.Vector3();
+            const kneeR = new THREE.Vector3();
+            bones.lCalf.getWorldPosition(kneeL);
+            bones.rCalf.getWorldPosition(kneeR);
+
+            const leftAnkleTarget = leftFoot.clone();
+            const rightAnkleTarget = rightFoot.clone();
+            poseBoneToward(bones.lCalf, leftAnkleTarget.clone().sub(kneeL).normalize(), 10, dt);
+            poseBoneToward(bones.rCalf, rightAnkleTarget.clone().sub(kneeR).normalize(), 10, dt);
+            restoreBone(bones.lFoot, 10, dt);
+            restoreBone(bones.rFoot, 10, dt);
           }
 
           // Human sitting is a coupled hip-knee-trunk action, not just a
@@ -2893,7 +2972,10 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
             6,
             dt,
           );
-          addRotation(bones.hips, 'x', -0.08 * sitAmount, 6, dt);
+          addRotation(bones.hips, 'x', -0.035 * sitAmount, 6, dt);
+          if (!chairMode || !furniture) {
+            applyRestArms(bones, h, dt, 9, 0);
+          }
           restoreBone(bones.lFoot, 8, dt);
           restoreBone(bones.rFoot, 8, dt);
 
@@ -2921,6 +3003,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         else if (gesture === 'stand') {
           restoreLowerBody(bones, 4.5, dt);
           restoreBone(bones.spine, 4, dt);
+          applyRestArms(bones, avatarFrame?.height ?? 1, dt, 11, 0);
           root.position.y = THREE.MathUtils.damp(root.position.y, 0, 5, dt);
         }
 
@@ -3040,11 +3123,8 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         if (duration > 0 && now - gestureStarted > duration) {
           gesture = 'idle';
           gestureStarted = now;
-          nativeMotion = playNative(
-            [/idle/, /stand/, /breath/, /rest/, /neutral/],
-            true,
-            true,
-          );
+          nativeMotion = false;
+          stopNativeMotion();
         }
       }
 
