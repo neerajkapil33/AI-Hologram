@@ -1077,6 +1077,16 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         gesture = 'present';
       } else if (/\b(handshake|hand-shake|shake-hand|shake-hands)\b/.test(value)) {
         gesture = 'handshake';
+      } else if (/\b(breathe|breathing)\b.*\b(slow|slowly|calm)\b/.test(value)) {
+        gesture = 'breathe-slow';
+      } else if (/\b(breathe|breathing)\b.*\b(medium|normal)\b/.test(value)) {
+        gesture = 'breathe-medium';
+      } else if (/\b(breathe|breathing)\b.*\b(fast|high|deep)\b/.test(value)) {
+        gesture = 'breathe-high';
+      } else if (/\b(clear|move|put|place)\b.*\b(table|chair|object|furniture)\b.*\b(side|aside|way)\b/.test(value)) {
+        gesture = 'clear-object-side';
+      } else if (/\b(talk|talking|speak|speaking|conversation)\b/.test(value)) {
+        gesture = 'talk';
       } else if (/\b(namaste|namaskar|join(ed)? hands?|palms? together)\b/.test(value)) {
         gesture = 'namaste';
       } else if (/\b(hello|greet|greeting|say hello|welcome)\b/.test(value)) {
@@ -2091,6 +2101,44 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
         }
 
         /*
+         * BREATHING STATES
+         *
+         * These are visual breathing cues, not medical respiratory control.
+         * Quiet breathing is slow/subtle; speech and laughter use faster,
+         * task-coupled chest motion.
+         */
+        else if (gesture === 'breathe-slow' || gesture === 'breathe-medium' || gesture === 'breathe-high') {
+          const rates = { 'breathe-slow': 0.8, 'breathe-medium': 1.25, 'breathe-high': 2.0 } as const;
+          const amps = { 'breathe-slow': 0.010, 'breathe-medium': 0.016, 'breathe-high': 0.024 } as const;
+          const b = Math.sin(time * rates[gesture]);
+          addRotation(bones.spine, 'x', b * amps[gesture], 5, dt);
+          addRotation(bones.spine1, 'x', b * amps[gesture] * 0.78, 5, dt);
+          addRotation(bones.spine2, 'x', b * amps[gesture] * 0.55, 5, dt);
+        }
+
+        /*
+         * TALKING
+         */
+        else if (gesture === 'talk') {
+          speaking = true;
+          targetMouth = 0.24 + Math.abs(Math.sin(time * 7.5)) * 0.32;
+          addRotation(bones.head, 'y', Math.sin(time * 1.7) * 0.025, 5, dt);
+          addRotation(bones.spine2, 'x', Math.sin(time * 2.0) * 0.012, 5, dt);
+        }
+
+        /*
+         * MOVE ENVIRONMENT OBJECTS ASIDE
+         */
+        else if (gesture === 'clear-object-side') {
+          if (furniture) {
+            const chair = furniture.getObjectByName('AURA_CHAIR');
+            const table = furniture.getObjectByName('AURA_TABLE');
+            if (chair) chair.position.x = -(avatarFrame?.height ?? 1) * 0.90;
+            if (table) table.position.x = -(avatarFrame?.height ?? 1) * 1.35;
+          }
+        }
+
+        /*
          * GREETING / NAMASTE
          */
         else if (gesture === 'greet' || gesture === 'namaste') {
@@ -2832,6 +2880,11 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           wave: 1800,
           greet: 1800,
           namaste: 2400,
+          'breathe-slow': 5000,
+          'breathe-medium': 5000,
+          'breathe-high': 5000,
+          talk: 5000,
+          'clear-object-side': 2200,
           'one-leg': 3200,
           'walk-forward': 3200,
           'walk-back': 3200,
