@@ -1226,12 +1226,7 @@ const apiRef = useRef<{ command: (cmd: AvatarCommand) => void } | null>(null);
           const pulse = Math.sin(Math.min(performanceAge, 1) * Math.PI);
           const strength = performanceState.intensity * (0.65 + 0.35 * pulse);
 
-          if (performanceState.gaze === 'camera') {
-          addRotation(bones.lEye, 'y', 0, 12, dt);
-          addRotation(bones.rEye, 'y', 0, 12, dt);
-          addRotation(bones.lEye, 'x', 0, 12, dt);
-          addRotation(bones.rEye, 'x', 0, 12, dt);
-        } else if (performanceState.gaze === 'soft_focus') {
+          if (performanceState.gaze === 'soft_focus') {
           addRotation(bones.lEye, 'y', -0.045 * strength, 10, dt);
           addRotation(bones.rEye, 'y', -0.045 * strength, 10, dt);
           addRotation(bones.lEye, 'x', -0.025 * strength, 10, dt);
