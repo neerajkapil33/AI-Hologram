@@ -5,7 +5,7 @@
 The product has two deliberate modes:
 
 - **Career Coach Profile** — a polished professional presentation of Neeraj using the supplied profile/reference image. This is the visual profile used when a visitor is browsing or opening the career-coach identity.
-- **AI Career Companion / Video Call** — the interactive digital human. It uses a generated Neeraj avatar, synthesized Neeraj voice, lip-sync, facial expression, eye movement, gestures and conversational AI. This mode is the one that should appear when the user chooses **Talk to Neeraj / Video Call**.
+- **AI Career Companion / Video Call** — the interactive digital human. It uses a production Neeraj FBX avatar, synthesized Neeraj voice, lip-sync, facial expression, eye movement, gestures and conversational AI. This mode is the one that should appear when the user chooses **Talk to Neeraj / Video Call**.
 
 The reference video is **source material only**. It must not be replayed as the product's answer video, copied as a fixed response, or presented as if it were the live AI. The system extracts identity, motion, facial and speech characteristics from approved source material and generates new responses.
 
@@ -96,9 +96,9 @@ When the user selects **Video Call / Connect with Neeraj**:
 
 ## 8. Technical pipeline
 
-`user text/voice -> STT -> persona + conversation memory -> LLM -> TTS voice clone -> lip/face/body animation -> WebGPU/Three.js presentation`
+`user text/voice -> STT -> persona + conversation memory -> LLM -> TTS voice -> FBX lip/face/body animation -> Three.js/WebGL presentation`
 
-For higher-fidelity video mode, MuseTalk or an equivalent approved facial animation pipeline may be used with the Neeraj reference video as a source. The reference video is not itself the output.
+For optional higher-fidelity video-call mode, Tavus or another approved realtime provider may be used. The reference video remains source material only. The reference video is not itself the output.
 
 ## 9. Source assets
 
